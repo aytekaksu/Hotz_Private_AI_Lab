@@ -330,3 +330,4 @@ Once you have the app running:
 **Ready to start?** → Run `./scripts/quick-start.sh` and you'll be chatting with your AI assistant in minutes! 🚀
 
 
+

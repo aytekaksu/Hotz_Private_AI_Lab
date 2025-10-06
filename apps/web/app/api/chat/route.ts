@@ -108,11 +108,8 @@ export async function POST(req: Request) {
     });
     
     // Return stream with conversation ID in headers
-    return new Response(result.toAIStream(), {
+    return result.toDataStreamResponse({
       headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
         'X-Conversation-Id': currentConversationId,
       },
     });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 import { useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
 
@@ -8,25 +8,16 @@ export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversationId, setConversationId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
+  const [initialMessages, setInitialMessages] = useState<any[]>([]);
+  const [remountKey, setRemountKey] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Initialize user (in a real app, this would be from auth)
   useEffect(() => {
-    let storedUserId = localStorage.getItem('userId');
-    if (!storedUserId) {
-      storedUserId = nanoid();
-      localStorage.setItem('userId', storedUserId);
-      
-      // Create user in database
-      fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: `user-${storedUserId}@local.dev` 
-        }),
-      });
-    }
-    setUserId(storedUserId);
+    // Use a consistent user ID for development
+    const consistentUserId = '1a1b8ad1-7668-484c-ac0d-cf46048cbbe7';
+    localStorage.setItem('userId', consistentUserId);
+    setUserId(consistentUserId);
   }, []);
   
   // Load conversations
@@ -44,6 +35,8 @@ export default function Home() {
       userId,
       conversationId,
     },
+    id: conversationId || 'new',
+    initialMessages,
     onResponse: (response) => {
       const newConvId = response.headers.get('X-Conversation-Id');
       if (newConvId && !conversationId) {
@@ -63,15 +56,23 @@ export default function Home() {
   
   const startNewConversation = () => {
     setConversationId('');
-    window.location.reload();
+    setInitialMessages([]);
+    setRemountKey((k) => k + 1);
   };
   
   const loadConversation = async (id: string) => {
     const res = await fetch(`/api/conversations/${id}`);
+    if (!res.ok) return;
     const data = await res.json();
+    // Map backend message shape to useChat expected shape
+    const mapped = (data.messages || []).map((m: any) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+    }));
     setConversationId(id);
-    // In a real implementation, we'd load the messages into the chat
-    window.location.reload();
+    setInitialMessages(mapped);
+    setRemountKey((k) => k + 1);
   };
   
   return (
@@ -122,7 +123,7 @@ export default function Home() {
       </div>
       
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div key={remountKey} className="flex-1 flex flex-col">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6">
           {messages.length === 0 ? (
