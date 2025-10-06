@@ -4,10 +4,13 @@ import { useChat } from '@ai-sdk/react';
 import { useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
 
+// Note: Database initialization happens on the server side, not in the browser
+
 export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversationId, setConversationId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState<boolean>(false);
   const [initialMessages, setInitialMessages] = useState<any[]>([]);
   const [remountKey, setRemountKey] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -23,9 +26,18 @@ export default function Home() {
   // Load conversations
   useEffect(() => {
     if (userId) {
+      setConversationsLoading(true);
+      setConversations([]); // Clear previous conversations
       fetch(`/api/conversations?userId=${userId}`)
         .then(res => res.json())
-        .then(data => setConversations(data.conversations || []));
+        .then(data => {
+          setConversations(data.conversations || []);
+          setConversationsLoading(false);
+        })
+        .catch(err => {
+          console.error('Failed to load conversations:', err);
+          setConversationsLoading(false);
+        });
     }
   }, [userId]);
   
@@ -93,22 +105,29 @@ export default function Home() {
           
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">Recent Conversations</h2>
-            {conversations.map((conv) => (
-              <button
-                key={conv.id}
-                onClick={() => loadConversation(conv.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                  conversationId === conv.id
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                <div className="truncate">{conv.title}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {new Date(conv.updated_at).toLocaleDateString()}
-                </div>
-              </button>
-            ))}
+            {conversationsLoading ? (
+              <div className="text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <div className="text-xs text-gray-500 mt-1">Loading...</div>
+              </div>
+            ) : (
+              conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => loadConversation(conv.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    conversationId === conv.id
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  <div className="truncate">{conv.title}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {new Date(conv.updated_at).toLocaleDateString()}
+                  </div>
+                </button>
+              ))
+            )}
           </div>
         </div>
         
@@ -137,13 +156,13 @@ export default function Home() {
                 </p>
                 <div className="text-left max-w-md mx-auto space-y-2 text-sm text-gray-600 dark:text-gray-400">
                   <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    "What meetings do I have this week?"
+                    &quot;What meetings do I have this week?&quot;
                   </div>
                   <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    "Add a task to buy groceries tomorrow"
+                    &quot;Add a task to buy groceries tomorrow&quot;
                   </div>
                   <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    "Create a new page in my Projects database"
+                    &quot;Create a new page in my Projects database&quot;
                   </div>
                 </div>
               </div>

@@ -16,13 +16,17 @@ export function getDb(): Database.Database {
       fs.mkdirSync(dir, { recursive: true });
     }
     
-    db = new Database(dbPath);
+    // Initialize database with optimizations
+    db = new Database(dbPath, {
+      verbose: process.env.NODE_ENV === 'development' ? console.log : undefined
+    });
     
     // Enable WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
     db.pragma('cache_size = -64000'); // 64MB cache
     db.pragma('temp_store = MEMORY');
+    db.pragma('mmap_size = 268435456'); // 256MB memory mapping
     
     console.log(`Database initialized at ${dbPath}`);
   }
@@ -211,15 +215,16 @@ export function createConversation(userId: string, title: string = 'New Conversa
   return { id, user_id: userId, title, created_at: now, updated_at: now };
 }
 
-export function getConversationsByUserId(userId: string): Conversation[] {
+export function getConversationsByUserId(userId: string, limit: number = 20): Conversation[] {
   const database = getDb();
   const stmt = database.prepare(`
     SELECT * FROM conversations
     WHERE user_id = ?
     ORDER BY updated_at DESC
+    LIMIT ?
   `);
   
-  return stmt.all(userId) as Conversation[];
+  return stmt.all(userId, limit) as Conversation[];
 }
 
 export function getConversationById(conversationId: string): Conversation | null {
