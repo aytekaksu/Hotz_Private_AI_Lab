@@ -10,7 +10,7 @@ export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversationId, setConversationId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
-  const [conversationsLoading, setConversationsLoading] = useState<boolean>(false);
+  const [conversationsLoading, setConversationsLoading] = useState<boolean>(true);
   const [initialMessages, setInitialMessages] = useState<any[]>([]);
   const [remountKey, setRemountKey] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -21,23 +21,53 @@ export default function Home() {
     const consistentUserId = '1a1b8ad1-7668-484c-ac0d-cf46048cbbe7';
     localStorage.setItem('userId', consistentUserId);
     setUserId(consistentUserId);
+    
+    // Set loading state immediately when user is set
+    setConversationsLoading(true);
   }, []);
   
-  // Load conversations
+  // Load conversations immediately when userId is set
   useEffect(() => {
     if (userId) {
-      setConversationsLoading(true);
+      const startTime = performance.now();
+      console.log('🔄 Starting conversations load...');
+      
+      // Don't set loading to true here since it's already set in user initialization
       setConversations([]); // Clear previous conversations
-      fetch(`/api/conversations?userId=${userId}`)
-        .then(res => res.json())
+      
+      // Use AbortController for better request handling
+      const controller = new AbortController();
+      
+      fetch(`/api/conversations?userId=${userId}`, {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
         .then(data => {
+          const endTime = performance.now();
+          const loadTime = endTime - startTime;
+          console.log(`✅ Conversations loaded in ${loadTime.toFixed(2)}ms`);
+          
           setConversations(data.conversations || []);
           setConversationsLoading(false);
         })
         .catch(err => {
-          console.error('Failed to load conversations:', err);
-          setConversationsLoading(false);
+          if (err.name !== 'AbortError') {
+            const endTime = performance.now();
+            const loadTime = endTime - startTime;
+            console.error(`❌ Failed to load conversations after ${loadTime.toFixed(2)}ms:`, err);
+            setConversationsLoading(false);
+          }
         });
+      
+      // Cleanup function
+      return () => controller.abort();
     }
   }, [userId]);
   
@@ -106,9 +136,15 @@ export default function Home() {
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">Recent Conversations</h2>
             {conversationsLoading ? (
+              <div className="text-center py-6">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
+                <div className="text-sm text-gray-600 dark:text-gray-400 mt-2 font-medium">Loading conversations...</div>
+                <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">Please wait</div>
+              </div>
+            ) : conversations.length === 0 ? (
               <div className="text-center py-4">
-                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                <div className="text-xs text-gray-500 mt-1">Loading...</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">No conversations yet</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Start a new chat to begin</div>
               </div>
             ) : (
               conversations.map((conv) => (
