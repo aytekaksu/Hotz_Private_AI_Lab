@@ -1,0 +1,16 @@
+{
+  "name": "ai-assistant-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "cd apps/web && npm run dev",
+    "build": "cd apps/web && npm run build",
+    "start": "cd apps/web && npm run start",
+    "db:migrate": "cd apps/web && npm run db:migrate"
+  }
+}
+
+

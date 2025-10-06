@@ -1,0 +1,47 @@
+# AI Assistant Project - Cursor Rules
+
+## Project Overview
+This is a Next.js 14 application with TypeScript that provides an AI assistant with integrations to Google Calendar, Google Tasks, and Notion.
+
+## Key Technologies
+- Next.js 14 (App Router)
+- TypeScript
+- SQLite (better-sqlite3)
+- Tailwind CSS
+- Vercel AI SDK
+- Docker
+
+## Code Style
+- Use TypeScript with strict mode
+- Prefer functional components
+- Use async/await over promises
+- Use const/let, never var
+- Follow Next.js conventions
+
+## Database
+- SQLite is located at data/sqlite/app.db
+- All credentials must be encrypted before storage
+- Use lib/encryption.ts for encryption/decryption
+- Migrations in lib/db/migrate.ts
+
+## Security
+- Never commit .env file
+- Always encrypt sensitive data before storing
+- Use environment variables for secrets
+- OAuth tokens must be encrypted
+
+## File Organization
+- API routes in app/api/
+- Components in app/[page]/
+- Utilities in lib/
+- Types alongside implementation files
+
+## Development
+- Run `npm run dev` for development
+- Run `npm run build` for production build
+- Run `npm run db:migrate` to update database
+
+## Testing
+- Test API routes with curl
+- Check health: curl http://localhost:3000/api/health
+- Check status: curl http://localhost:3000/api/status
