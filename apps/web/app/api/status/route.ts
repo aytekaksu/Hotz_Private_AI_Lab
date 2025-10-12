@@ -8,6 +8,9 @@ export const runtime = 'nodejs';
  */
 export async function GET(req: NextRequest) {
   try {
+    const searchParams = req.nextUrl.searchParams;
+    const userId = searchParams.get('userId');
+    
     const db = getDb();
     
     // Get user count
@@ -29,6 +32,26 @@ export async function GET(req: NextRequest) {
       'SELECT COUNT(*) as count FROM messages WHERE created_at > ?'
     ).get(yesterday) as { count: number };
     
+    // Check user OAuth connections if userId provided
+    let googleConnected = false;
+    let notionConnected = false;
+    
+    if (userId) {
+      try {
+        const googleCred = db.prepare(
+          'SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?'
+        ).get(userId, 'google');
+        googleConnected = !!googleCred;
+        
+        const notionCred = db.prepare(
+          'SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?'
+        ).get(userId, 'notion');
+        notionConnected = !!notionCred;
+      } catch (e) {
+        // Ignore errors checking user credentials
+      }
+    }
+    
     return Response.json({
       status: 'operational',
       version: '1.0.0',
@@ -48,8 +71,9 @@ export async function GET(req: NextRequest) {
         openrouter: !!process.env.APP_ENCRYPTION_KEY,
         google_oauth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
         notion_oauth: !!(process.env.NOTION_CLIENT_ID && process.env.NOTION_CLIENT_SECRET),
-        n8n_integration: !!process.env.N8N_WEBHOOK_URL,
       },
+      google_connected: googleConnected,
+      notion_connected: notionConnected,
     });
   } catch (error) {
     console.error('Status endpoint error:', error);

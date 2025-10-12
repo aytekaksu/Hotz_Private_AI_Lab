@@ -1,0 +1,2 @@
+{"health_endpoint": 
+{"status":"healthy","timestamp":"2025-10-09T10:06:17.086Z","checks":{"database":true,"environment":true},"details":{"database":"Connected","environment":"All required variables set","oauth":{"google_oauth":false,"notion_oauth":false}}}

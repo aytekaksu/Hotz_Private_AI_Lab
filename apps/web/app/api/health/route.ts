@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
     timestamp: new Date().toISOString(),
     checks: {
       database: false,
-      n8n: false,
       environment: false,
     },
     details: {} as Record<string, any>,
@@ -24,21 +23,6 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     checks.checks.database = false;
     checks.details.database = error instanceof Error ? error.message : 'Connection failed';
-  }
-
-  // Check n8n availability
-  try {
-    const n8nUrl = process.env.N8N_WEBHOOK_URL || 'http://n8n:5678';
-    const baseUrl = n8nUrl.replace('/webhook', '');
-    const response = await fetch(`${baseUrl}/healthz`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(5000),
-    });
-    checks.checks.n8n = response.ok;
-    checks.details.n8n = response.ok ? 'Available' : `Status: ${response.status}`;
-  } catch (error) {
-    checks.checks.n8n = false;
-    checks.details.n8n = error instanceof Error ? error.message : 'Not reachable';
   }
 
   // Check environment variables

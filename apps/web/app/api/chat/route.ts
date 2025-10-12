@@ -1,4 +1,10 @@
-$(sed 's/^/+/' /tmp/new_chat_route.ts)
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamText } from 'ai';
+import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage } from '@/lib/db';
+import { tools } from '@/lib/tools/definitions';
+import { executeTool } from '@/lib/tools/executor';
+import type { ToolName } from '@/lib/tools/definitions';
+import fs from 'fs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +60,7 @@ export async function POST(req: Request) {
           content += appendix;
         }
       }
+      
       // Build provider message content: include images as image parts when possible
       const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
       const atts = Array.isArray(attachments) ? getAttachmentsByIds(attachments) : [];
@@ -74,6 +81,7 @@ export async function POST(req: Request) {
         // Fallback: text-only
         (messages as any)[messages.length - 1].content = content;
       }
+      
       const saved = createMessage(currentConversationId, 'user', content);
       if (Array.isArray(attachments) && attachments.length > 0) {
         try {
@@ -92,8 +100,21 @@ export async function POST(req: Request) {
       baseURL: 'https://openrouter.ai/api/v1',
     });
     
-    // Tool execution disabled in this baseline; external n8n dependency removed
+    // Build AI SDK tools from definitions
     const aiTools: Record<string, any> = {};
+    
+    for (const [toolName, toolDef] of Object.entries(tools)) {
+      aiTools[toolName] = {
+        description: toolDef.description,
+        parameters: toolDef.parameters,
+        execute: async (args: any) => {
+          console.log(`Tool called: ${toolName}`, args);
+          const result = await executeTool(toolName as ToolName, args, userId);
+          console.log(`Tool result: ${toolName}`, result);
+          return result;
+        },
+      };
+    }
     
     // Stream response from Claude
     const result = await streamText({
