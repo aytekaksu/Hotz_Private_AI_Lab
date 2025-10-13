@@ -19,7 +19,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentsRef = useRef<any[]>([]);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, error } = useChat({
     api: '/api/chat',
     body: {
       conversationId: currentConversationId,
@@ -36,6 +36,10 @@ export default function Home() {
     onFinish: (message) => {
       // Clear pending attachments after the message is finished
       pendingAttachmentsRef.current = [];
+    },
+    onError: (error) => {
+      console.error('Chat error:', error);
+      // The error will be displayed in the UI automatically
     },
   });
 
@@ -426,6 +430,27 @@ export default function Home() {
               </div>
             ) : (
               <div className="max-w-3xl mx-auto space-y-4">
+                {error && (
+                  <div className="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-700 dark:bg-red-900/20">
+                    <div className="flex items-start gap-3">
+                      <svg className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-red-800 dark:text-red-200">Error</h3>
+                        <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                          {error.message || 'An error occurred while processing your request.'}
+                        </p>
+                        {error.message?.includes('limit exceeded') && (
+                          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                            Please update your OpenRouter API key in Settings.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 {messages.map((message: any, index) => (
                   <div
                     key={index}
