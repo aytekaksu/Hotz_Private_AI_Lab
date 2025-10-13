@@ -121,6 +121,12 @@ export const tools = {
       page_id: z.string().describe('The ID of the page to retrieve'),
     }),
   },
+  
+  // System Tools (hidden from user, always available)
+  get_current_datetime: {
+    description: 'Get the current date and time in the user\'s timezone. Use this whenever you need to know what time it is now, or to calculate relative dates like "tomorrow", "next week", etc.',
+    parameters: z.object({}),
+  },
 };
 
 // Type for tool names
@@ -215,6 +221,14 @@ export const toolMetadata: Record<ToolName, {
     category: 'Notion',
     requiresAuth: true,
     authProvider: 'notion',
+  },
+  
+  // System Tools (hidden from UI)
+  get_current_datetime: {
+    displayName: 'Get Current Date/Time',
+    category: 'System',
+    requiresAuth: false,
+    authProvider: null,
   },
 };
 

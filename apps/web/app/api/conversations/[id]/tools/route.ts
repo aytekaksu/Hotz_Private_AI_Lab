@@ -35,10 +35,15 @@ export async function GET(
     const googleConnected = !!getOAuthCredential(userId, 'google');
     const notionConnected = !!getOAuthCredential(userId, 'notion');
 
-    // Build tools list with status
-    const toolsList = Object.keys(tools).map((toolName) => {
-      const metadata = toolMetadata[toolName as ToolName];
-      const enabled = enabledToolsMap.get(toolName) || false;
+    // Build tools list with status (exclude System category tools)
+    const toolsList = Object.keys(tools)
+      .filter((toolName) => {
+        const metadata = toolMetadata[toolName as ToolName];
+        return metadata.category !== 'System'; // Hide system tools from UI
+      })
+      .map((toolName) => {
+        const metadata = toolMetadata[toolName as ToolName];
+        const enabled = enabledToolsMap.get(toolName) || false;
       
       // Check if auth is available
       let authConnected = true;
@@ -52,18 +57,18 @@ export async function GET(
 
       const available = !metadata.requiresAuth || authConnected;
 
-      return {
-        toolName,
-        displayName: metadata.displayName,
-        category: metadata.category,
-        description: tools[toolName as ToolName].description,
-        enabled,
-        available,
-        requiresAuth: metadata.requiresAuth,
-        authProvider: metadata.authProvider,
-        authConnected,
-      };
-    });
+        return {
+          toolName,
+          displayName: metadata.displayName,
+          category: metadata.category,
+          description: tools[toolName as ToolName].description,
+          enabled,
+          available,
+          requiresAuth: metadata.requiresAuth,
+          authProvider: metadata.authProvider,
+          authConnected,
+        };
+      });
 
     return Response.json({ tools: toolsList });
   } catch (error) {

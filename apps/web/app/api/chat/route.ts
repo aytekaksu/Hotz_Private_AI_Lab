@@ -158,6 +158,22 @@ export async function POST(req: Request) {
       }
     }
     
+    // Always add system tools (not shown to user, always available)
+    aiTools['get_current_datetime'] = {
+      description: tools['get_current_datetime'].description,
+      parameters: tools['get_current_datetime'].parameters,
+      execute: async (args: any) => {
+        console.log('Tool called: get_current_datetime', args);
+        const result = await executeTool('get_current_datetime', args, userId);
+        console.log('Tool result: get_current_datetime', result);
+        return result;
+      },
+    };
+    availableToolsList.push({
+      name: 'get_current_datetime',
+      description: tools['get_current_datetime'].description
+    });
+    
     // Build system prompt with available tools
     let systemPrompt = 'You are a helpful AI assistant.';
     
@@ -166,9 +182,7 @@ export async function POST(req: Request) {
       for (const tool of availableToolsList) {
         systemPrompt += `- ${tool.name}: ${tool.description}\n`;
       }
-      systemPrompt += '\nUse these tools when appropriate to help the user. Do not reference or attempt to use tools not listed above.';
-    } else {
-      systemPrompt += ' You do not have access to any tools in this conversation.';
+      systemPrompt += '\nUse these tools when appropriate to help the user. Always use get_current_datetime when you need to know the current date/time or calculate dates relative to now.';
     }
     
     // Insert system message at the start
@@ -184,6 +198,7 @@ export async function POST(req: Request) {
       tools: aiTools,
       maxTokens: 4096,
       temperature: 0.7,
+      maxSteps: 5, // Allow multiple tool calls and continued generation
       onFinish: async ({ text, finishReason, usage }) => {
         // Save assistant message to database
         try {

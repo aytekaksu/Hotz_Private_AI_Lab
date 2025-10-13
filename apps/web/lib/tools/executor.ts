@@ -2,6 +2,7 @@ import { ToolName } from './definitions';
 import * as googleCalendar from './google-calendar';
 import * as googleTasks from './google-tasks';
 import * as notion from './notion';
+import * as system from './system';
 
 export async function executeTool(
   toolName: ToolName,
@@ -53,6 +54,10 @@ export async function executeTool(
       
       case 'get_notion_page':
         return await notion.getNotionPage(userId, args);
+      
+      // System Tools
+      case 'get_current_datetime':
+        return await system.getCurrentDatetime();
       
       default:
         return {
