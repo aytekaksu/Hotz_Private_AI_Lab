@@ -25,6 +25,7 @@ export default function Home() {
       conversationId: currentConversationId,
       userId,
       attachments: pendingAttachmentsRef.current.map(a => a.id),
+      userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
     onResponse: (response) => {
       const convId = response.headers.get('X-Conversation-Id');

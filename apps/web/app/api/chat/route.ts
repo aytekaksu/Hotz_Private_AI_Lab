@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const { messages, conversationId, userId, attachments } = await req.json();
+    const { messages, conversationId, userId, attachments, userTimezone } = await req.json();
     
     if (!userId) {
       return new Response('User ID required', { status: 401 });
@@ -174,27 +174,64 @@ export async function POST(req: Request) {
       description: tools['get_current_datetime'].description
     });
     
-    // Get current date/time for context
+    // Get current date/time for context using user's timezone
     const now = new Date();
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const timezoneOffset = -now.getTimezoneOffset() / 60;
+    const timezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    // Format date/time in user's timezone
+    const userDate = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(now);
+    
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'long'
+    }).format(now);
+    
+    const monthName = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      month: 'long'
+    }).format(now);
+    
+    const dateString = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone
+    }).format(now); // YYYY-MM-DD format
+    
+    const timeString = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(now);
+    
+    // Get timezone offset for user's timezone
+    const userDateObj = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const utcDateObj = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const timezoneOffset = (userDateObj.getTime() - utcDateObj.getTime()) / (1000 * 60 * 60);
     const timezoneString = `UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset}`;
-    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
-    const monthName = now.toLocaleDateString('en-US', { month: 'long' });
-    const dateString = now.toISOString().split('T')[0];
-    const timeString = now.toTimeString().split(' ')[0];
-    const currentDateTime = `${dayOfWeek}, ${monthName} ${now.getDate()}, ${now.getFullYear()} at ${timeString} (${timezone}, ${timezoneString})`;
+    
+    const currentDateTime = `${userDate} (${timezone}, ${timezoneString})`;
     
     // Build system prompt with available tools
     let systemPrompt = `You are a helpful AI assistant.
 
-CURRENT DATE AND TIME: ${currentDateTime}
-Date: ${dateString}
-Time: ${timeString}
-Timezone: ${timezone} (${timezoneString})
-Day of week: ${dayOfWeek}
+You are aware of the current date and time:
+- Current date and time: ${currentDateTime}
+- Date: ${dateString}
+- Time: ${timeString}
+- Timezone: ${timezone} (${timezoneString})
+- Day of week: ${dayOfWeek}
 
-Use this information whenever you need to know the current date or time, or to calculate relative dates like "tomorrow", "next week", etc.`;
+You know this information naturally and should use it directly when users ask about dates, times, or need to calculate relative dates like "tomorrow", "next week", etc. Do not mention checking, looking up, or using any tools for time information - you simply know the current time.`;
     
     if (availableToolsList.filter(t => t.name !== 'get_current_datetime').length > 0) {
       systemPrompt += '\n\nYou have access to the following tools in this conversation:\n';
