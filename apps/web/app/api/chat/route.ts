@@ -185,6 +185,10 @@ export async function POST(req: Request) {
       systemPrompt += '\nUse these tools when appropriate to help the user. Always use get_current_datetime when you need to know the current date/time or calculate dates relative to now.';
     }
     
+    console.log('System prompt:', systemPrompt);
+    console.log('Available tools:', Object.keys(aiTools));
+    console.log('Tools list:', availableToolsList.map(t => t.name));
+    
     // Insert system message at the start
     aiMessages.unshift({
       role: 'system',
