@@ -9,18 +9,41 @@ export default function SettingsPage() {
   const [openRouterKey, setOpenRouterKey] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
+  const [hasExistingKey, setHasExistingKey] = useState(false);
+  const [isRemovingKey, setIsRemovingKey] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
-    if (!storedUserId) {
-      router.push('/');
-      return;
-    }
-    setUserId(storedUserId);
-    loadSettings(storedUserId);
+    const initSettings = async () => {
+      const storedUserId = localStorage.getItem('userId');
+      if (!storedUserId) {
+        router.push('/');
+        return;
+      }
+      
+      // Verify user exists
+      try {
+        const response = await fetch(`/api/users/${storedUserId}`);
+        if (!response.ok) {
+          // User doesn't exist, redirect to home to create new user
+          localStorage.removeItem('userId');
+          router.push('/');
+          return;
+        }
+      } catch (error) {
+        console.error('Error verifying user:', error);
+        localStorage.removeItem('userId');
+        router.push('/');
+        return;
+      }
+      
+      setUserId(storedUserId);
+      loadSettings(storedUserId);
+    };
+    
+    initSettings();
   }, [router]);
 
   const loadSettings = async (uid: string) => {
@@ -31,6 +54,7 @@ export default function SettingsPage() {
       
       if (data.hasKey) {
         setOpenRouterKey('••••••••••••••••'); // Masked
+        setHasExistingKey(true);
       }
 
       // Check OAuth connections
@@ -61,15 +85,47 @@ export default function SettingsPage() {
       if (response.ok) {
         setKeySaved(true);
         setOpenRouterKey('••••••••••••••••');
+        setHasExistingKey(true);
         setTimeout(() => setKeySaved(false), 3000);
       } else {
-        alert('Failed to save API key');
+        const errorData = await response.json();
+        alert(`Failed to save API key: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Failed to save API key:', error);
       alert('Failed to save API key');
     } finally {
       setIsSavingKey(false);
+    }
+  };
+
+  const removeOpenRouterKey = async () => {
+    if (!confirm('Are you sure you want to remove your OpenRouter API key? This will disable AI functionality.')) {
+      return;
+    }
+    
+    setIsRemovingKey(true);
+    
+    try {
+      const response = await fetch('/api/settings/openrouter-key', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (response.ok) {
+        setOpenRouterKey('');
+        setHasExistingKey(false);
+        setKeySaved(false);
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to remove API key: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to remove API key:', error);
+      alert('Failed to remove API key');
+    } finally {
+      setIsRemovingKey(false);
     }
   };
 
@@ -143,10 +199,23 @@ export default function SettingsPage() {
               openrouter.ai/keys
             </a>
           </p>
+          {hasExistingKey && (
+            <div className="mb-4 rounded-lg bg-green-50 p-3 dark:bg-green-900/20">
+              <div className="flex items-center gap-2">
+                <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                  API key is configured and working
+                </span>
+              </div>
+            </div>
+          )}
+          
           <div className="flex gap-3">
             <input
               type="text"
-              placeholder="sk-or-v1-..."
+              placeholder={hasExistingKey ? "Enter new API key to replace existing one" : "sk-or-v1-..."}
               value={openRouterKey}
               onChange={(e) => setOpenRouterKey(e.target.value)}
               className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -156,12 +225,21 @@ export default function SettingsPage() {
               disabled={isSavingKey || !openRouterKey || openRouterKey.startsWith('••••')}
               className="rounded-lg bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
             >
-              {isSavingKey ? 'Saving...' : 'Save'}
+              {isSavingKey ? 'Saving...' : hasExistingKey ? 'Update' : 'Save'}
             </button>
+            {hasExistingKey && (
+              <button
+                onClick={removeOpenRouterKey}
+                disabled={isRemovingKey}
+                className="rounded-lg bg-red-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                {isRemovingKey ? 'Removing...' : 'Remove'}
+              </button>
+            )}
           </div>
           {keySaved && (
             <div className="mt-2 text-sm text-green-600 dark:text-green-400">
-              ✓ API key saved successfully
+              ✓ API key {hasExistingKey ? 'updated' : 'saved'} successfully
             </div>
           )}
         </div>

@@ -20,6 +20,20 @@ async function extractText(buffer: Buffer, mimetype: string): Promise<string | u
   }
 }
 
+// Allowed file types
+const ALLOWED_MIMETYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+  'text/csv',
+  'text/html',
+  'text/markdown',
+  'application/json',
+];
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -29,8 +43,17 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'No files provided' }, { status: 400 });
     }
     
+    // Validate file types
+    for (const file of files) {
+      if (!ALLOWED_MIMETYPES.includes(file.type)) {
+        return Response.json({ 
+          error: `File type not supported: ${file.type}. Only images and text documents are allowed.` 
+        }, { status: 400 });
+      }
+    }
+    
     const uploadDir = process.env.DATABASE_URL?.includes('/data/')
-      ? '/root/Hotz_AI_Lab/data/sqlite/uploads'
+      ? '/data/uploads'
       : path.join(process.cwd(), 'data', 'uploads');
     
     // Ensure upload directory exists

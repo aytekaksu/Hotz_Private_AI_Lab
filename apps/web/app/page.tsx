@@ -11,7 +11,8 @@ export default function Home() {
   const [isResizing, setIsResizing] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -20,7 +21,7 @@ export default function Home() {
     body: {
       conversationId: currentConversationId,
       userId,
-      attachments,
+      attachments: attachments.map(a => a.id),
     },
     onResponse: (response) => {
       const convId = response.headers.get('X-Conversation-Id');
@@ -35,19 +36,50 @@ export default function Home() {
   // Initialize user
   useEffect(() => {
     const initUser = async () => {
-      let storedUserId = localStorage.getItem('userId');
-      if (!storedUserId) {
-        const email = `user-${Date.now()}@local.dev`;
-        const response = await fetch('/api/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const data = await response.json();
-        storedUserId = data.user.id;
-        localStorage.setItem('userId', storedUserId);
+      let storedUserId: string | null = localStorage.getItem('userId');
+      
+      // If we have a stored user ID, verify it exists
+      if (storedUserId) {
+        try {
+          const response = await fetch(`/api/users/${storedUserId}`);
+          if (!response.ok) {
+            // User doesn't exist, clear localStorage and create new user
+            localStorage.removeItem('userId');
+            storedUserId = null;
+          }
+        } catch (error) {
+          console.error('Error verifying user:', error);
+          localStorage.removeItem('userId');
+          storedUserId = null;
+        }
       }
-      setUserId(storedUserId);
+      
+      // Create new user if none exists or verification failed
+      if (!storedUserId) {
+        // Use a consistent email for single-user app
+        const email = 'user@assistant.local';
+        try {
+          const response = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          const data = await response.json();
+          const newUserId = typeof data.user?.id === 'string' ? data.user.id : null;
+          if (newUserId) {
+            localStorage.setItem('userId', newUserId);
+            storedUserId = newUserId;
+          } else {
+            console.error('User creation response missing id', data);
+          }
+        } catch (error) {
+          console.error('Failed to create user:', error);
+        }
+      }
+      
+      if (storedUserId) {
+        setUserId(storedUserId);
+      }
     };
     initUser();
   }, []);
@@ -112,6 +144,7 @@ export default function Home() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    setIsUploading(true);
     const formData = new FormData();
     Array.from(files).forEach((file) => {
       formData.append('files', file);
@@ -123,14 +156,27 @@ export default function Home() {
         body: formData,
       });
       const data = await response.json();
-      setAttachments((prev) => [...prev, ...data.attachments.map((a: any) => a.id)]);
+      
+      if (data.error) {
+        alert(data.error);
+      } else {
+        setAttachments((prev) => [...prev, ...data.attachments]);
+      }
     } catch (error) {
       console.error('Failed to upload files:', error);
+      alert('Failed to upload files');
+    } finally {
+      setIsUploading(false);
     }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  // Remove attachment
+  const removeAttachment = (attachmentId: string) => {
+    setAttachments((prev) => prev.filter(a => a.id !== attachmentId));
   };
 
   // Sidebar resizing
@@ -299,7 +345,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="max-w-3xl mx-auto space-y-4">
-                {messages.map((message, index) => (
+                {messages.map((message: any, index) => (
                   <div
                     key={index}
                     className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -311,6 +357,35 @@ export default function Home() {
                           : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700'
                       }`}
                     >
+                      {/* Attachments */}
+                      {message.attachments && message.attachments.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {message.attachments.map((attachment: any) => (
+                            <a
+                              key={attachment.id}
+                              href={`/api/attachments/${attachment.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
+                                message.role === 'user'
+                                  ? 'bg-blue-500 text-white hover:bg-blue-400'
+                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                              }`}
+                            >
+                              {attachment.mimetype.startsWith('image/') ? (
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                              ) : (
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                              )}
+                              <span className="max-w-[100px] truncate">{attachment.filename}</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <div className="whitespace-pre-wrap">{message.content}</div>
                     </div>
                   </div>
@@ -323,25 +398,66 @@ export default function Home() {
           {/* Input Area */}
           <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800">
             <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
+              {/* Attachment Chiplets */}
+              {attachments.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {attachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="group relative inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                    >
+                      {attachment.mimetype.startsWith('image/') ? (
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      )}
+                      <span className="max-w-[150px] truncate">{attachment.filename}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(attachment.id)}
+                        className="ml-1 rounded-full p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               <div className="flex items-center gap-3">
                 {/* File Attachment */}
                 <div className="flex items-center gap-2">
-                  <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm transition-colors hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-500 dark:hover:text-blue-300">
+                  <label className={`flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm transition-colors hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-500 dark:hover:text-blue-300 ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <span className="sr-only">Attach files</span>
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
-                      <path
-                        d="M7.5 11.25l3.79-3.8a1.75 1.75 0 1 1 2.47 2.47l-5.3 5.3a3.25 3.25 0 1 1-4.6-4.6l5.65-5.65"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    {isUploading ? (
+                      <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
+                        <path
+                          d="M7.5 11.25l3.79-3.8a1.75 1.75 0 1 1 2.47 2.47l-5.3 5.3a3.25 3.25 0 1 1-4.6-4.6l5.65-5.65"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
                     <input
                       ref={fileInputRef}
                       type="file"
                       className="hidden"
                       multiple
+                      accept="image/*,.txt,.csv,.html,.md,.json"
                       onChange={handleFileChange}
+                      disabled={isUploading}
                     />
                   </label>
 
@@ -384,12 +500,6 @@ export default function Home() {
                   Send
                 </button>
               </div>
-
-              {attachments.length > 0 && (
-                <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                  {attachments.length} file(s) attached
-                </div>
-              )}
             </form>
           </div>
         </div>

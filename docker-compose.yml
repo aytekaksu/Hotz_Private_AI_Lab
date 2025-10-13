@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     restart: unless-stopped
     ports:
       - "443:443"
@@ -12,7 +14,7 @@ services:
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
     environment:
-      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - INTERNAL_DOMAIN=${INTERNAL_DOMAIN}
     networks:
       - app-network
     depends_on:
@@ -33,6 +35,7 @@ services:
       - NOTION_CLIENT_SECRET=${NOTION_CLIENT_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     volumes:
       - ./data/sqlite:/data
     networks:
@@ -45,6 +48,3 @@ networks:
 volumes:
   sqlite_data:
   caddy_data:
-
-
-

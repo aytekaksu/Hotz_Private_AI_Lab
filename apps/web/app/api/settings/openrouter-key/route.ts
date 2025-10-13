@@ -56,3 +56,31 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { userId } = await req.json();
+    
+    if (!userId) {
+      return Response.json({ error: 'User ID required' }, { status: 400 });
+    }
+    
+    const user = getUserById(userId);
+    if (!user) {
+      return Response.json({ error: 'User not found' }, { status: 404 });
+    }
+    
+    updateUserOpenRouterKey(userId, '');
+    
+    return Response.json({ 
+      success: true,
+      message: 'API key removed successfully'
+    });
+  } catch (error) {
+    console.error('Error removing OpenRouter key:', error);
+    return Response.json(
+      { error: 'Failed to remove API key' },
+      { status: 500 }
+    );
+  }
+}

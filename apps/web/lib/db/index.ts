@@ -247,6 +247,12 @@ export function setAttachmentMessage(attachmentId: string, messageId: string): v
   stmt.run(messageId, attachmentId);
 }
 
+export function getAttachmentsByMessageId(messageId: string): Attachment[] {
+  const db = getDb();
+  const stmt = db.prepare('SELECT * FROM attachments WHERE message_id = ?');
+  return stmt.all(messageId) as Attachment[];
+}
+
 // OAuth Credential operations
 export function storeOAuthCredential(
   userId: string,

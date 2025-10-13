@@ -1,12 +1,9 @@
 # Main application
 {$INTERNAL_DOMAIN} {
     reverse_proxy web:3000
-    
-    # TLS via DNS-01 challenge (no exposed HTTP)
-    tls {
-        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-    }
-    
+
+    tls internal
+
     # Security headers
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -15,20 +12,5 @@
         X-XSS-Protection "1; mode=block"
     }
 }
-
-# n8n UI (basic auth protected)
-n8n.{$INTERNAL_DOMAIN} {
-    reverse_proxy n8n:5678
-    
-    tls {
-        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-    }
-    
-    # Note: For production, configure basic auth here
-    # basicauth {
-    #     admin JDJhJDE0JExGdXNOcVBXWklTN0JwQXlBRFlsUWVIQXBINy9BTGdSZElmcFJKNHJ1YWlNUC9FcjNuemh1
-    # }
-}
-
 
 

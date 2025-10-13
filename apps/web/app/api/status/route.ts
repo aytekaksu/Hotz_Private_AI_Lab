@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
  * Status endpoint - provides detailed system information
@@ -87,6 +88,5 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
 
 

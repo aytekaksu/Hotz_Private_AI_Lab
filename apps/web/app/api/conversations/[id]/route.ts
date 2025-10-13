@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getConversationById, getMessagesByConversationId, deleteConversation } from '@/lib/db';
+import { getConversationById, getMessagesByConversationId, deleteConversation, getAttachmentsByMessageId } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +24,7 @@ export async function GET(
         content: msg.content,
         id: msg.id,
         created_at: msg.created_at,
+        attachments: getAttachmentsByMessageId(msg.id),
       }))
     });
   } catch (error) {

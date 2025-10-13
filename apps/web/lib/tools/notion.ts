@@ -109,12 +109,15 @@ export async function createNotionPage(
     
     const response = await notion.pages.create(pageData);
     
+    const pageUrl = 'url' in response ? response.url : undefined;
+    const createdTime = 'created_time' in response ? response.created_time : undefined;
+
     return {
       success: true,
       page: {
         id: response.id,
-        url: response.url,
-        created_time: response.created_time,
+        url: pageUrl,
+        created_time: createdTime,
       },
       message: 'Page created successfully',
     };
@@ -142,12 +145,15 @@ export async function updateNotionPage(
       properties: params.properties,
     });
     
+    const pageUrl = 'url' in response ? response.url : undefined;
+    const lastEditedTime = 'last_edited_time' in response ? response.last_edited_time : undefined;
+
     return {
       success: true,
       page: {
         id: response.id,
-        url: response.url,
-        last_edited_time: response.last_edited_time,
+        url: pageUrl,
+        last_edited_time: lastEditedTime,
       },
       message: 'Page updated successfully',
     };
@@ -201,14 +207,17 @@ export async function getNotionPage(
     const page = await notion.pages.retrieve({ page_id: params.page_id });
     const blocks = await notion.blocks.children.list({ block_id: params.page_id });
     
+    const createdTime = 'created_time' in page ? page.created_time : undefined;
+    const lastEditedTime = 'last_edited_time' in page ? page.last_edited_time : undefined;
+
     return {
       success: true,
       page: {
         id: page.id,
         properties: (page as any).properties,
         url: (page as any).url,
-        created_time: page.created_time,
-        last_edited_time: page.last_edited_time,
+        created_time: createdTime,
+        last_edited_time: lastEditedTime,
         blocks: blocks.results,
       },
     };
@@ -220,7 +229,5 @@ export async function getNotionPage(
     };
   }
 }
-
-
 
 

@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage } from '@/lib/db';
+import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey } from '@/lib/db';
 import { tools } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -23,8 +23,15 @@ export async function POST(req: Request) {
       return new Response('User not found', { status: 404 });
     }
     
-    if (!user.openrouter_api_key) {
-      return new Response('OpenRouter API key not configured. Please add it in Settings.', { status: 400 });
+    // Use user's API key or fallback to environment variable
+    let apiKey = getUserOpenRouterKey(userId);
+    if (!apiKey) {
+      // Fallback to environment variable for development/testing
+      apiKey = process.env.OPENROUTER_API_KEY || null;
+      
+      if (!apiKey) {
+        return new Response('OpenRouter API key not configured. Please add it in Settings.', { status: 400 });
+      }
     }
     
     // Determine conversation ID
@@ -37,6 +44,9 @@ export async function POST(req: Request) {
       const conversation = createConversation(userId, title);
       currentConversationId = conversation.id;
     }
+    
+    // Create a copy of messages for AI processing
+    const aiMessages = [...messages];
     
     // Save user message to database (with attachment text appended when available)
     const userMessage = messages[messages.length - 1];
@@ -76,10 +86,11 @@ export async function POST(req: Request) {
             console.error('Failed to embed image attachment:', img.path, e);
           }
         }
-        (messages as any)[messages.length - 1].content = parts;
+        // Modify the copy, not the original
+        (aiMessages as any)[aiMessages.length - 1].content = parts;
       } else {
         // Fallback: text-only
-        (messages as any)[messages.length - 1].content = content;
+        (aiMessages as any)[aiMessages.length - 1].content = content;
       }
       
       const saved = createMessage(currentConversationId, 'user', content);
@@ -94,9 +105,9 @@ export async function POST(req: Request) {
       }
     }
     
-    // Initialize OpenRouter client with user's API key
+    // Initialize OpenRouter client with API key
     const openrouter = createOpenAI({
-      apiKey: user.openrouter_api_key,
+      apiKey: apiKey,
       baseURL: 'https://openrouter.ai/api/v1',
     });
     
@@ -119,7 +130,7 @@ export async function POST(req: Request) {
     // Stream response from Claude
     const result = await streamText({
       model: openrouter('anthropic/claude-3.5-sonnet'),
-      messages,
+      messages: aiMessages,
       tools: aiTools,
       maxTokens: 4096,
       temperature: 0.7,
