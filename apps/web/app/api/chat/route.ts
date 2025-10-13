@@ -12,6 +12,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
     const { messages, conversationId, userId, attachments, userTimezone } = await req.json();
+    const headerTimezone = req.headers.get('X-User-Timezone');
+    
     
     if (!userId) {
       return new Response('User ID required', { status: 401 });
@@ -176,7 +178,8 @@ export async function POST(req: Request) {
     
     // Get current date/time for context using user's timezone
     const now = new Date();
-    const timezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezone = userTimezone || headerTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
     
     // Format date/time in user's timezone
     const userDate = new Intl.DateTimeFormat('en-US', {
