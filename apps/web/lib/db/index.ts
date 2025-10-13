@@ -331,3 +331,62 @@ export function deleteOAuthCredential(userId: string, provider: 'google' | 'noti
   const stmt = db.prepare('DELETE FROM oauth_credentials WHERE user_id = ? AND provider = ?');
   stmt.run(userId, provider);
 }
+
+// Conversation Tools operations
+export function getConversationTools(conversationId: string): Array<{tool_name: string, enabled: boolean}> {
+  const db = getDb();
+  const stmt = db.prepare('SELECT tool_name, enabled FROM conversation_tools WHERE conversation_id = ?');
+  const results = stmt.all(conversationId) as Array<{tool_name: string, enabled: number}>;
+  return results.map(r => ({ tool_name: r.tool_name, enabled: r.enabled === 1 }));
+}
+
+export function setConversationToolEnabled(conversationId: string, toolName: string, enabled: boolean): void {
+  const db = getDb();
+  const enabledInt = enabled ? 1 : 0;
+  
+  // Try to update first
+  const updateStmt = db.prepare('UPDATE conversation_tools SET enabled = ? WHERE conversation_id = ? AND tool_name = ?');
+  const result = updateStmt.run(enabledInt, conversationId, toolName);
+  
+  // If no rows were updated, insert new row
+  if (result.changes === 0) {
+    const insertStmt = db.prepare(`
+      INSERT INTO conversation_tools (id, conversation_id, tool_name, enabled, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `);
+    const id = crypto.randomUUID();
+    insertStmt.run(id, conversationId, toolName, enabledInt);
+  }
+}
+
+export function initializeDefaultTools(conversationId: string): void {
+  const db = getDb();
+  
+  // List of all tool names (matches tools in definitions.ts)
+  const toolNames = [
+    'list_calendar_events',
+    'create_calendar_event',
+    'update_calendar_event',
+    'delete_calendar_event',
+    'list_tasks',
+    'create_task',
+    'update_task',
+    'complete_task',
+    'query_notion_database',
+    'create_notion_page',
+    'update_notion_page',
+    'append_notion_blocks',
+    'get_notion_page',
+  ];
+  
+  // Insert all tools as disabled by default
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO conversation_tools (id, conversation_id, tool_name, enabled, created_at)
+    VALUES (?, ?, ?, 0, datetime('now'))
+  `);
+  
+  for (const toolName of toolNames) {
+    const id = crypto.randomUUID();
+    stmt.run(id, conversationId, toolName);
+  }
+}

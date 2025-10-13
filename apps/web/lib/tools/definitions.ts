@@ -126,6 +126,98 @@ export const tools = {
 // Type for tool names
 export type ToolName = keyof typeof tools;
 
+// Tool metadata for UI and authorization
+export const toolMetadata: Record<ToolName, {
+  displayName: string;
+  category: string;
+  requiresAuth: boolean;
+  authProvider: 'google' | 'notion' | null;
+}> = {
+  // Google Calendar
+  list_calendar_events: {
+    displayName: 'List Calendar Events',
+    category: 'Google Calendar',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  create_calendar_event: {
+    displayName: 'Create Calendar Event',
+    category: 'Google Calendar',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  update_calendar_event: {
+    displayName: 'Update Calendar Event',
+    category: 'Google Calendar',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  delete_calendar_event: {
+    displayName: 'Delete Calendar Event',
+    category: 'Google Calendar',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  
+  // Google Tasks
+  list_tasks: {
+    displayName: 'List Tasks',
+    category: 'Google Tasks',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  create_task: {
+    displayName: 'Create Task',
+    category: 'Google Tasks',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  update_task: {
+    displayName: 'Update Task',
+    category: 'Google Tasks',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  complete_task: {
+    displayName: 'Complete Task',
+    category: 'Google Tasks',
+    requiresAuth: true,
+    authProvider: 'google',
+  },
+  
+  // Notion
+  query_notion_database: {
+    displayName: 'Query Database',
+    category: 'Notion',
+    requiresAuth: true,
+    authProvider: 'notion',
+  },
+  create_notion_page: {
+    displayName: 'Create Page',
+    category: 'Notion',
+    requiresAuth: true,
+    authProvider: 'notion',
+  },
+  update_notion_page: {
+    displayName: 'Update Page',
+    category: 'Notion',
+    requiresAuth: true,
+    authProvider: 'notion',
+  },
+  append_notion_blocks: {
+    displayName: 'Append Content',
+    category: 'Notion',
+    requiresAuth: true,
+    authProvider: 'notion',
+  },
+  get_notion_page: {
+    displayName: 'Get Page Details',
+    category: 'Notion',
+    requiresAuth: true,
+    authProvider: 'notion',
+  },
+};
+
 // Helper to get tool schema
 export function getToolSchema(toolName: ToolName) {
   return tools[toolName];

@@ -13,6 +13,8 @@ export default function Home() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [attachments, setAttachments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isToolsModalOpen, setIsToolsModalOpen] = useState(false);
+  const [availableTools, setAvailableTools] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentsRef = useRef<any[]>([]);
@@ -151,8 +153,49 @@ export default function Home() {
       const data = await response.json();
       setMessages(data.messages || []);
       setCurrentConversationId(conversationId);
+      
+      // Load tools for this conversation
+      loadTools(conversationId);
     } catch (error) {
       console.error('Failed to load conversation:', error);
+    }
+  };
+
+  // Load tools for conversation
+  const loadTools = async (conversationId: string | null) => {
+    if (!conversationId || !userId) return;
+    
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/tools?userId=${userId}`);
+      const data = await response.json();
+      setAvailableTools(data.tools || []);
+    } catch (error) {
+      console.error('Failed to load tools:', error);
+    }
+  };
+
+  // Toggle tool enabled/disabled
+  const toggleTool = async (toolName: string, enabled: boolean) => {
+    if (!currentConversationId || !userId) return;
+    
+    try {
+      const response = await fetch(`/api/conversations/${currentConversationId}/tools`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, toolName, enabled }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.error || 'Failed to update tool');
+        return;
+      }
+      
+      // Refresh tools list
+      loadTools(currentConversationId);
+    } catch (error) {
+      console.error('Failed to toggle tool:', error);
+      alert('Failed to update tool');
     }
   };
 
@@ -502,10 +545,16 @@ export default function Home() {
                   <div className="relative">
                     <button
                       type="button"
-                      disabled
+                      onClick={() => {
+                        if (currentConversationId) {
+                          loadTools(currentConversationId);
+                          setIsToolsModalOpen(true);
+                        }
+                      }}
+                      disabled={!currentConversationId}
                       className="flex h-11 w-11 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm transition-colors hover:border-blue-400 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-500 dark:hover:text-blue-300"
                       aria-haspopup="dialog"
-                      aria-expanded="false"
+                      aria-expanded={isToolsModalOpen}
                       aria-label="Conversation tool settings"
                     >
                       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
@@ -542,6 +591,105 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Tools Modal */}
+      {isToolsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Conversation Tools
+              </h2>
+              <button
+                onClick={() => setIsToolsModalOpen(false)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="overflow-y-auto p-6" style={{ maxHeight: 'calc(80vh - 140px)' }}>
+              {availableTools.length === 0 ? (
+                <p className="text-center text-gray-500 dark:text-gray-400">Loading tools...</p>
+              ) : (
+                <div className="space-y-6">
+                  {/* Group tools by category */}
+                  {['Google Calendar', 'Google Tasks', 'Notion'].map((category) => {
+                    const categoryTools = availableTools.filter(t => t.category === category);
+                    if (categoryTools.length === 0) return null;
+
+                    return (
+                      <div key={category} className="space-y-3">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                          {category}
+                        </h3>
+                        <div className="space-y-2">
+                          {categoryTools.map((tool) => (
+                            <div
+                              key={tool.toolName}
+                              className={`flex items-start gap-3 rounded-lg border p-4 ${
+                                tool.available
+                                  ? 'border-gray-200 dark:border-gray-700'
+                                  : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={tool.enabled}
+                                disabled={!tool.available}
+                                onChange={(e) => toggleTool(tool.toolName, e.target.checked)}
+                                className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <label className="font-medium text-gray-900 dark:text-white">
+                                    {tool.displayName}
+                                  </label>
+                                  {tool.authConnected ? (
+                                    <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                                      Connected
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                                      Not Connected
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                                  {tool.description}
+                                </p>
+                                {!tool.available && (
+                                  <p className="mt-2 text-xs text-orange-600 dark:text-orange-400">
+                                    Please connect your {tool.authProvider} account in Settings to use this tool.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4">
+              <button
+                onClick={() => setIsToolsModalOpen(false)}
+                className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

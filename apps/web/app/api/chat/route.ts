@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey } from '@/lib/db';
-import { tools } from '@/lib/tools/definitions';
+import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential } from '@/lib/db';
+import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
 import fs from 'fs';
@@ -43,6 +43,9 @@ export async function POST(req: Request) {
       const title = firstMessage.substring(0, 50);
       const conversation = createConversation(userId, title);
       currentConversationId = conversation.id;
+      
+      // Initialize default tools (all disabled) for new conversation
+      initializeDefaultTools(currentConversationId);
     }
     
     // Create a copy of messages for AI processing
@@ -123,21 +126,67 @@ export async function POST(req: Request) {
       baseURL: 'https://openrouter.ai/api/v1',
     });
     
-    // Build AI SDK tools from definitions
-    const aiTools: Record<string, any> = {};
+    // Get enabled tools for this conversation
+    const conversationTools = getConversationTools(currentConversationId);
+    const enabledToolNames = conversationTools
+      .filter(t => t.enabled)
+      .map(t => t.tool_name);
     
-    for (const [toolName, toolDef] of Object.entries(tools)) {
-      aiTools[toolName] = {
-        description: toolDef.description,
-        parameters: toolDef.parameters,
-        execute: async (args: any) => {
-          console.log(`Tool called: ${toolName}`, args);
-          const result = await executeTool(toolName as ToolName, args, userId);
-          console.log(`Tool result: ${toolName}`, result);
-          return result;
-        },
-      };
+    // Build AI SDK tools from definitions - only include enabled tools with auth
+    const aiTools: Record<string, any> = {};
+    const availableToolsList: Array<{name: string, description: string}> = [];
+    
+    for (const toolName of enabledToolNames) {
+      const toolDef = tools[toolName as ToolName];
+      const metadata = toolMetadata[toolName as ToolName];
+      
+      // Check if tool requires auth and if user has it
+      let canUse = true;
+      if (metadata.requiresAuth) {
+        const authConnected = !!getOAuthCredential(userId, metadata.authProvider!);
+        if (!authConnected) {
+          canUse = false;
+        }
+      }
+      
+      // Only add tool if user can use it
+      if (canUse) {
+        aiTools[toolName] = {
+          description: toolDef.description,
+          parameters: toolDef.parameters,
+          execute: async (args: any) => {
+            console.log(`Tool called: ${toolName}`, args);
+            const result = await executeTool(toolName as ToolName, args, userId);
+            console.log(`Tool result: ${toolName}`, result);
+            return result;
+          },
+        };
+        
+        availableToolsList.push({
+          name: toolName,
+          description: toolDef.description
+        });
+      }
     }
+    
+    // Build system prompt with available tools
+    let systemPrompt = 'You are a helpful AI assistant.';
+    
+    if (availableToolsList.length > 0) {
+      systemPrompt += '\n\nYou have access to the following tools in this conversation:\n';
+      for (const tool of availableToolsList) {
+        systemPrompt += `- ${tool.name}: ${tool.description}\n`;
+      }
+      systemPrompt += '\nUse these tools when appropriate to help the user. Do not reference or attempt to use tools not listed above.';
+    } else {
+      systemPrompt += ' You do not have access to any tools in this conversation.';
+    }
+    
+    // Insert system message at the start
+    aiMessages.unshift({
+      role: 'system',
+      content: systemPrompt
+    });
     
     // Stream response from Claude
     const result = await streamText({
