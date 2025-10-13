@@ -10,10 +10,10 @@
     "db:migrate": "tsx lib/db/migrate.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^1.0.0",
-    "@ai-sdk/react": "^1.0.0",
+    "@ai-sdk/openai": "^0.0.50",
+    "@ai-sdk/react": "^0.0.70",
     "@notionhq/client": "^2.2.15",
-    "ai": "^4.0.0",
+    "ai": "^3.3.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.0.0",
     "date-fns": "^3.0.0",

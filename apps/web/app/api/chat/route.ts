@@ -199,10 +199,9 @@ export async function POST(req: Request) {
     const result = await streamText({
       model: openrouter('anthropic/claude-3.5-sonnet'),
       messages: aiMessages,
-      tools: aiTools,
+      tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxTokens: 4096,
       temperature: 0.7,
-      maxSteps: 5, // Allow multiple tool calls and continued generation
       onFinish: async ({ text, finishReason, usage }) => {
         // Save assistant message to database
         try {
