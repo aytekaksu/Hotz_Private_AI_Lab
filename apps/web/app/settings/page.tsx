@@ -138,14 +138,25 @@ export default function SettingsPage() {
   };
 
   const disconnectGoogle = async () => {
-    if (!confirm('Disconnect Google account?')) return;
+    if (!confirm('Are you sure you want to disconnect your Google account? This will disable Calendar and Tasks features.')) return;
     
     try {
-      await fetch(`/api/auth/google?userId=${userId}`, { method: 'DELETE' });
-      setGoogleConnected(false);
+      const response = await fetch(`/api/auth/google?userId=${userId}`, { method: 'DELETE' });
+      if (response.ok) {
+        setGoogleConnected(false);
+        alert('Google account disconnected successfully');
+      } else {
+        throw new Error('Failed to disconnect');
+      }
     } catch (error) {
       console.error('Failed to disconnect Google:', error);
       alert('Failed to disconnect Google account');
+    }
+  };
+
+  const reconnectGoogle = () => {
+    if (confirm('Reconnect your Google account? This will replace your current connection.')) {
+      connectGoogle();
     }
   };
 
@@ -250,8 +261,22 @@ export default function SettingsPage() {
             Google Integration
           </h2>
           <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Connect your Google account to access Calendar and Tasks
+            Connect your Google account to access Calendar and Tasks. The AI assistant can view, create, and manage your events and tasks.
           </p>
+          
+          {googleConnected && (
+            <div className="mb-4 rounded-lg bg-green-50 p-3 dark:bg-green-900/20">
+              <div className="flex items-center gap-2">
+                <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                  Google account connected with Calendar and Tasks access
+                </span>
+              </div>
+            </div>
+          )}
+          
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div
@@ -259,25 +284,42 @@ export default function SettingsPage() {
                   googleConnected ? 'bg-green-500' : 'bg-gray-300'
                 }`}
               />
-              <span className="text-gray-900 dark:text-white">
-                {googleConnected ? 'Connected' : 'Not connected'}
-              </span>
+              <div>
+                <span className="font-medium text-gray-900 dark:text-white">
+                  {googleConnected ? 'Connected' : 'Not connected'}
+                </span>
+                {googleConnected && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Permissions: Calendar, Tasks
+                  </p>
+                )}
+              </div>
             </div>
-            {googleConnected ? (
-              <button
-                onClick={disconnectGoogle}
-                className="rounded-lg bg-red-100 px-4 py-2 text-red-700 transition-colors hover:bg-red-200 dark:bg-red-900 dark:text-red-200 dark:hover:bg-red-800"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={connectGoogle}
-                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
-              >
-                Connect Google
-              </button>
-            )}
+            <div className="flex gap-2">
+              {googleConnected ? (
+                <>
+                  <button
+                    onClick={reconnectGoogle}
+                    className="rounded-lg bg-blue-100 px-4 py-2 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    onClick={disconnectGoogle}
+                    className="rounded-lg bg-red-100 px-4 py-2 text-red-700 transition-colors hover:bg-red-200 dark:bg-red-900 dark:text-red-200 dark:hover:bg-red-800"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={connectGoogle}
+                  className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
+                >
+                  Connect Google
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

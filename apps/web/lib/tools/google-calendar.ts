@@ -1,24 +1,8 @@
 import { google } from 'googleapis';
-import { getDecryptedOAuthCredential } from '../db';
+import { getGoogleOAuth2Client } from '../google-auth';
 
-function getCalendarClient(userId: string) {
-  const credentials = getDecryptedOAuthCredential(userId, 'google');
-  if (!credentials) {
-    throw new Error('Google account not connected. Please connect in Settings.');
-  }
-  
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  
-  oauth2Client.setCredentials({
-    access_token: credentials.accessToken,
-    refresh_token: credentials.refreshToken,
-    scope: credentials.scope,
-    expiry_date: credentials.expiresAt?.getTime(),
-  });
-  
+async function getCalendarClient(userId: string) {
+  const oauth2Client = await getGoogleOAuth2Client(userId);
   return google.calendar({ version: 'v3', auth: oauth2Client });
 }
 
@@ -31,7 +15,7 @@ export async function listCalendarEvents(
   }
 ): Promise<any> {
   try {
-    const calendar = getCalendarClient(userId);
+    const calendar = await getCalendarClient(userId);
     
     const response = await calendar.events.list({
       calendarId: params.calendar_id || 'primary',
@@ -78,7 +62,7 @@ export async function createCalendarEvent(
   }
 ): Promise<any> {
   try {
-    const calendar = getCalendarClient(userId);
+    const calendar = await getCalendarClient(userId);
     
     const event = {
       summary: params.title,
@@ -132,7 +116,7 @@ export async function updateCalendarEvent(
   }
 ): Promise<any> {
   try {
-    const calendar = getCalendarClient(userId);
+    const calendar = await getCalendarClient(userId);
     
     // First, get the existing event
     const existingEvent = await calendar.events.get({
@@ -187,7 +171,7 @@ export async function deleteCalendarEvent(
   }
 ): Promise<any> {
   try {
-    const calendar = getCalendarClient(userId);
+    const calendar = await getCalendarClient(userId);
     
     await calendar.events.delete({
       calendarId: 'primary',

@@ -1,24 +1,8 @@
 import { google } from 'googleapis';
-import { getDecryptedOAuthCredential } from '../db';
+import { getGoogleOAuth2Client } from '../google-auth';
 
-function getTasksClient(userId: string) {
-  const credentials = getDecryptedOAuthCredential(userId, 'google');
-  if (!credentials) {
-    throw new Error('Google account not connected. Please connect in Settings.');
-  }
-  
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  
-  oauth2Client.setCredentials({
-    access_token: credentials.accessToken,
-    refresh_token: credentials.refreshToken,
-    scope: credentials.scope,
-    expiry_date: credentials.expiresAt?.getTime(),
-  });
-  
+async function getTasksClient(userId: string) {
+  const oauth2Client = await getGoogleOAuth2Client(userId);
   return google.tasks({ version: 'v1', auth: oauth2Client });
 }
 
@@ -29,7 +13,7 @@ export async function listTasks(
   }
 ): Promise<any> {
   try {
-    const tasks = getTasksClient(userId);
+    const tasks = await getTasksClient(userId);
     
     // Get the task list ID (use default if not provided)
     let taskListId = params.task_list_id;
@@ -78,7 +62,7 @@ export async function createTask(
   }
 ): Promise<any> {
   try {
-    const tasks = getTasksClient(userId);
+    const tasks = await getTasksClient(userId);
     
     // Get default task list
     const listsResponse = await tasks.tasklists.list();
@@ -126,7 +110,7 @@ export async function updateTask(
   }
 ): Promise<any> {
   try {
-    const tasks = getTasksClient(userId);
+    const tasks = await getTasksClient(userId);
     
     // Get default task list
     const listsResponse = await tasks.tasklists.list();
@@ -180,7 +164,7 @@ export async function completeTask(
   }
 ): Promise<any> {
   try {
-    const tasks = getTasksClient(userId);
+    const tasks = await getTasksClient(userId);
     
     // Get default task list
     const listsResponse = await tasks.tasklists.list();
