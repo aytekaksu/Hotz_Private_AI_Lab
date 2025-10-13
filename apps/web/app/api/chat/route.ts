@@ -74,23 +74,35 @@ export async function POST(req: Request) {
       // Build provider message content: include images as image parts when possible
       const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
       const atts = Array.isArray(attachments) ? getAttachmentsByIds(attachments) : [];
+      console.log('Chat API - Processing attachments:', { 
+        attachmentIds: attachments, 
+        foundAttachments: atts.length,
+        attachmentDetails: atts.map(a => ({ id: a.id, filename: a.filename, path: a.path, mimetype: a.mimetype }))
+      });
+      
       const imageAtts = atts.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
+      console.log('Chat API - Image attachments:', imageAtts.length);
+      
       if (imageAtts.length > 0) {
         const parts: any[] = [{ type: 'text', text: content }];
         for (const img of imageAtts) {
           try {
+            console.log('Chat API - Reading image file:', img.path);
             const buf = fs.readFileSync(img.path);
             const dataUrl = `data:${img.mimetype};base64,${buf.toString('base64')}`;
             parts.push({ type: 'image', image: dataUrl });
+            console.log('Chat API - Successfully processed image:', img.filename);
           } catch (e) {
             console.error('Failed to embed image attachment:', img.path, e);
           }
         }
         // Modify the copy, not the original
         (aiMessages as any)[aiMessages.length - 1].content = parts;
+        console.log('Chat API - Using image parts for AI message');
       } else {
         // Fallback: text-only
         (aiMessages as any)[aiMessages.length - 1].content = content;
+        console.log('Chat API - Using text-only content for AI message');
       }
       
       const saved = createMessage(currentConversationId, 'user', content);

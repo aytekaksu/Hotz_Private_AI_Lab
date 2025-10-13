@@ -15,13 +15,14 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingAttachmentsRef = useRef<any[]>([]);
 
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat({
     api: '/api/chat',
     body: {
       conversationId: currentConversationId,
       userId,
-      attachments: attachments.map(a => a.id),
+      attachments: pendingAttachmentsRef.current.map(a => a.id),
     },
     onResponse: (response) => {
       const convId = response.headers.get('X-Conversation-Id');
@@ -29,9 +30,46 @@ export default function Home() {
         setCurrentConversationId(convId);
         loadConversations();
       }
-      setAttachments([]);
+    },
+    onFinish: (message) => {
+      // Clear pending attachments after the message is finished
+      pendingAttachmentsRef.current = [];
     },
   });
+
+  // Custom submit handler to clear attachments immediately
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    if (!input.trim() && attachments.length === 0) return;
+    
+    // Store current attachments in ref for the API request
+    const currentAttachments = [...attachments];
+    pendingAttachmentsRef.current = currentAttachments;
+    
+    // Clear attachments immediately from input UI
+    setAttachments([]);
+    
+    // Add attachments to the user message immediately
+    if (currentAttachments.length > 0) {
+      // We need to add the attachments to the message that will be created
+      // Since useChat will create a new message, we'll add attachments after it's created
+      // Use requestAnimationFrame for immediate execution in the next frame
+      requestAnimationFrame(() => {
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastIndex = newMessages.length - 1;
+          if (lastIndex >= 0 && newMessages[lastIndex].role === 'user') {
+            (newMessages[lastIndex] as any).attachments = currentAttachments;
+          }
+          return newMessages;
+        });
+      });
+    }
+    
+    // Call the original submit handler
+    handleSubmit(e);
+  };
 
   // Initialize user
   useEffect(() => {
@@ -397,7 +435,7 @@ export default function Home() {
 
           {/* Input Area */}
           <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800">
-            <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
+            <form onSubmit={handleFormSubmit} className="mx-auto max-w-3xl">
               {/* Attachment Chiplets */}
               {attachments.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
