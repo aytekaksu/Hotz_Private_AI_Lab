@@ -174,15 +174,36 @@ export async function POST(req: Request) {
       description: tools['get_current_datetime'].description
     });
     
-    // Build system prompt with available tools
-    let systemPrompt = 'You are a helpful AI assistant.';
+    // Get current date/time for context
+    const now = new Date();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezoneOffset = -now.getTimezoneOffset() / 60;
+    const timezoneString = `UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset}`;
+    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+    const monthName = now.toLocaleDateString('en-US', { month: 'long' });
+    const dateString = now.toISOString().split('T')[0];
+    const timeString = now.toTimeString().split(' ')[0];
+    const currentDateTime = `${dayOfWeek}, ${monthName} ${now.getDate()}, ${now.getFullYear()} at ${timeString} (${timezone}, ${timezoneString})`;
     
-    if (availableToolsList.length > 0) {
+    // Build system prompt with available tools
+    let systemPrompt = `You are a helpful AI assistant.
+
+CURRENT DATE AND TIME: ${currentDateTime}
+Date: ${dateString}
+Time: ${timeString}
+Timezone: ${timezone} (${timezoneString})
+Day of week: ${dayOfWeek}
+
+Use this information whenever you need to know the current date or time, or to calculate relative dates like "tomorrow", "next week", etc.`;
+    
+    if (availableToolsList.filter(t => t.name !== 'get_current_datetime').length > 0) {
       systemPrompt += '\n\nYou have access to the following tools in this conversation:\n';
       for (const tool of availableToolsList) {
-        systemPrompt += `- ${tool.name}: ${tool.description}\n`;
+        if (tool.name !== 'get_current_datetime') {
+          systemPrompt += `- ${tool.name}: ${tool.description}\n`;
+        }
       }
-      systemPrompt += '\nUse these tools when appropriate to help the user. Always use get_current_datetime when you need to know the current date/time or calculate dates relative to now.';
+      systemPrompt += '\nUse these tools when appropriate to help the user.';
     }
     
     console.log('System prompt:', systemPrompt);
