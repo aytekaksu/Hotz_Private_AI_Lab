@@ -1,3 +1,0 @@
-CONTAINER ID   IMAGE             COMMAND                  CREATED      STATUS      PORTS                                                                                                NAMES
-9e32d43359a6   hotz_ai_lab-web   "docker-entrypoint.s…"   3 days ago   Up 3 days   3000/tcp                                                                                             hotz_ai_lab-web-1
-3c8617fd239b   caddy:2-alpine    "caddy run --config …"   4 days ago   Up 4 days   80/tcp, 2019/tcp, 0.0.0.0:443->443/tcp, 0.0.0.0:443->443/udp, [::]:443->443/tcp, [::]:443->443/udp   hotz_ai_lab-caddy-1
