@@ -1,8 +1,14 @@
+{
+    # Used for ACME account registration with Let's Encrypt/ZeroSSL
+    email {$ACME_EMAIL}
+}
+
 # Main application
 {$INTERNAL_DOMAIN} {
     reverse_proxy web:3000
 
-    tls internal
+    # Automatic public certificates (ACME). If you set CLOUDFLARE_API_TOKEN
+    # and want DNS challenge instead of HTTP/ALPN, run scripts/provision-tls.sh.
 
     # Security headers
     header {
@@ -12,5 +18,4 @@
         X-XSS-Protection "1; mode=block"
     }
 }
-
 
