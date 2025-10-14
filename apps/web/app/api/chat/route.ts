@@ -227,17 +227,19 @@ export async function POST(req: Request) {
     // Build system prompt with available tools
     let systemPrompt = `You are a helpful AI assistant.
 
-You are aware of the current date and time:
+You have access to the current date and time information:
 - Current date and time: ${currentDateTime}
 - Date: ${dateString}
 - Time: ${timeString}
 - Timezone: ${timezone} (${timezoneString})
 - Day of week: ${dayOfWeek}
 
-You know this information naturally and should use it directly when users ask about dates, times, or need to calculate relative dates like "tomorrow", "next week", etc. Do not mention checking, looking up, or using any tools for time information - you simply know the current time.`;
+Use this information only when users specifically ask about dates, times, or when you need to calculate relative dates like "tomorrow", "next week", etc. Do not volunteer this information unless it's relevant to the user's question.
+
+You also have access to the get_current_datetime tool if you need to get the current time during the conversation.`;
     
     if (availableToolsList.filter(t => t.name !== 'get_current_datetime').length > 0) {
-      systemPrompt += '\n\nYou have access to the following tools in this conversation:\n';
+      systemPrompt += '\n\nYou have access to the following additional tools in this conversation:\n';
       for (const tool of availableToolsList) {
         if (tool.name !== 'get_current_datetime') {
           systemPrompt += `- ${tool.name}: ${tool.description}\n`;
@@ -263,6 +265,7 @@ You know this information naturally and should use it directly when users ask ab
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxTokens: 4096,
       temperature: 0.7,
+      maxSteps: 5, // Allow multiple tool calls and continued generation
       onFinish: async ({ text, finishReason, usage }) => {
         // Save assistant message to database
         try {
