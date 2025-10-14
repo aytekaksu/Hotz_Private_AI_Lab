@@ -6,40 +6,137 @@ async function getCalendarClient(userId: string) {
   return google.calendar({ version: 'v3', auth: oauth2Client });
 }
 
-export async function listCalendarEvents(
-  userId: string,
-  params: {
-    start_date: string;
-    end_date: string;
-    calendar_id?: string;
+type ListEventsParams = {
+  // Preferred window filters (RFC3339 or YYYY-MM-DD); falling back to legacy names
+  start_date?: string;
+  end_date?: string;
+  start?: string;
+  end?: string;
+  calendar_id?: string;
+
+  // Output shaping controls (defaults keep output small)
+  max_results?: number;           // default 20, hard cap by GCAL_MAX_EVENTS/env
+  include_description?: boolean;  // default false
+  include_location?: boolean;     // default false
+  include_attendees?: boolean;    // default false
+  include_link?: boolean;         // default false
+  truncate_description?: number;  // default from env GCAL_MAX_EVENT_DESCRIPTION
+
+  // Pagination support
+  page_token?: string;
+};
+
+function normalizeDateValue(value: string | undefined, fallbackTime: 'start' | 'end'): string | undefined {
+  if (!value) return undefined;
+
+  const trimmed = value.trim();
+
+  // If the value is a plain date (YYYY-MM-DD), append a time so Google accepts it.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return fallbackTime === 'start'
+      ? `${trimmed}T00:00:00Z`
+      : `${trimmed}T23:59:59Z`;
   }
-): Promise<any> {
+
+  // Try to parse other formats and convert to ISO string.
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return fallbackTime === 'end'
+      ? new Date(parsed.getTime()).toISOString()
+      : parsed.toISOString();
+  }
+
+  // Assume caller already provided an RFC3339 string.
+  return trimmed;
+}
+
+export async function listCalendarEvents(userId: string, params: ListEventsParams): Promise<any> {
   try {
     const calendar = await getCalendarClient(userId);
+    const timeMin = normalizeDateValue(params.start_date ?? params.start, 'start');
+    const timeMax = normalizeDateValue(params.end_date ?? params.end, 'end');
+    const envMaxEvents = Number(process.env.GCAL_MAX_EVENTS ?? 50);
+    const maxEvents = Math.max(
+      1,
+      Math.min(
+        envMaxEvents,
+        params.max_results != null ? Number(params.max_results) || 0 : 20,
+      ),
+    );
+    const maxDescriptionLength = Number(
+      params.truncate_description ?? process.env.GCAL_MAX_EVENT_DESCRIPTION ?? 140,
+    );
+
+    const includeDescription = !!params.include_description;
+    const includeLocation = !!params.include_location;
+    const includeAttendees = !!params.include_attendees;
+    const includeLink = !!params.include_link;
+
+    // Ask Google only for fields we potentially return.
+    const itemSubfields: string[] = [
+      'id',
+      'summary',
+      'start',
+      'end',
+    ];
+    if (includeDescription) itemSubfields.push('description');
+    if (includeLocation) itemSubfields.push('location');
+    if (includeAttendees) itemSubfields.push('attendees/email');
+    if (includeLink) itemSubfields.push('htmlLink');
+    const fields = `items(${itemSubfields.join(',')}),nextPageToken`;
     
     const response = await calendar.events.list({
       calendarId: params.calendar_id || 'primary',
-      timeMin: params.start_date,
-      timeMax: params.end_date,
+      timeMin: timeMin ?? undefined,
+      timeMax: timeMax ?? undefined,
       singleEvents: true,
       orderBy: 'startTime',
+      maxResults: Math.min(maxEvents, 250),
+      pageToken: params.page_token,
+      fields,
     });
     
-    const events = response.data.items || [];
+    const events = (response.data.items || []).filter(event => {
+      const startValue = event.start?.dateTime || event.start?.date;
+      if (!startValue) return true;
+      const startTime = new Date(startValue).getTime();
+      const minTime = timeMin ? new Date(timeMin).getTime() : undefined;
+      const maxTime = timeMax ? new Date(timeMax).getTime() : undefined;
+      if (Number.isNaN(startTime)) return true;
+      if (minTime !== undefined && startTime < minTime) return false;
+      if (maxTime !== undefined && startTime > maxTime) return false;
+      return true;
+    });
     
-    return {
-      success: true,
-      events: events.map(event => ({
+    const limitedEvents = events.slice(0, maxEvents);
+    const sanitizedEvents = limitedEvents.map(event => {
+      const out: any = {
         id: event.id,
         title: event.summary,
         start: event.start?.dateTime || event.start?.date,
         end: event.end?.dateTime || event.end?.date,
-        description: event.description,
-        location: event.location,
-        attendees: event.attendees?.map(a => a.email),
-        htmlLink: event.htmlLink,
-      })),
+      };
+      if (includeDescription) {
+        const description = event.description || '';
+        const trimmedDescription =
+          description.length > maxDescriptionLength
+            ? `${description.slice(0, maxDescriptionLength)}…`
+            : description;
+        if (trimmedDescription) out.description = trimmedDescription;
+      }
+      if (includeLocation && event.location) out.location = event.location;
+      if (includeAttendees && event.attendees) out.attendees = event.attendees.map(a => a.email);
+      if (includeLink && event.htmlLink) out.htmlLink = event.htmlLink;
+      return out;
+    });
+    
+    return {
+      success: true,
+      events: sanitizedEvents,
       count: events.length,
+      returned: sanitizedEvents.length,
+      truncated: events.length > sanitizedEvents.length,
+      next_page_token: response.data.nextPageToken || null,
     };
   } catch (error: any) {
     console.error('Error listing calendar events:', error);
@@ -190,7 +287,3 @@ export async function deleteCalendarEvent(
     };
   }
 }
-
-
-
-

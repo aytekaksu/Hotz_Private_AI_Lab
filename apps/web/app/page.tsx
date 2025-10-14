@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useChat } from 'ai/react';
+import { useState, useEffect, useRef, useMemo, useCallback, type ChangeEvent, type FormEvent } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 
 export default function Home() {
   const [userId, setUserId] = useState<string>('');
@@ -15,68 +16,15 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [isToolsModalOpen, setIsToolsModalOpen] = useState(false);
   const [availableTools, setAvailableTools] = useState<any[]>([]);
+  const [input, setInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentsRef = useRef<any[]>([]);
+  const currentConversationIdRef = useRef<string | null>(null);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, error } = useChat({
-    api: '/api/chat',
-    body: {
-      conversationId: currentConversationId,
-      userId,
-      attachments: pendingAttachmentsRef.current.map(a => a.id),
-      userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    },
-    onResponse: (response) => {
-      const convId = response.headers.get('X-Conversation-Id');
-      if (convId && convId !== currentConversationId) {
-        setCurrentConversationId(convId);
-        loadConversations();
-      }
-    },
-    onFinish: (message) => {
-      // Clear pending attachments after the message is finished
-      pendingAttachmentsRef.current = [];
-    },
-    onError: (error) => {
-      console.error('Chat error:', error);
-      // The error will be displayed in the UI automatically
-    },
-  });
-
-  // Custom submit handler to clear attachments immediately
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    if (!input.trim() && attachments.length === 0) return;
-    
-    // Store current attachments in ref for the API request
-    const currentAttachments = [...attachments];
-    pendingAttachmentsRef.current = currentAttachments;
-    
-    // Clear attachments immediately from input UI
-    setAttachments([]);
-    
-    // Add attachments to the user message immediately
-    if (currentAttachments.length > 0) {
-      // We need to add the attachments to the message that will be created
-      // Since useChat will create a new message, we'll add attachments after it's created
-      // Use requestAnimationFrame for immediate execution in the next frame
-      requestAnimationFrame(() => {
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastIndex = newMessages.length - 1;
-          if (lastIndex >= 0 && newMessages[lastIndex].role === 'user') {
-            (newMessages[lastIndex] as any).attachments = currentAttachments;
-          }
-          return newMessages;
-        });
-      });
-    }
-    
-    // Call the original submit handler
-    handleSubmit(e);
-  };
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
 
   // Initialize user
   useEffect(() => {
@@ -130,7 +78,7 @@ export default function Home() {
   }, []);
 
   // Load conversations
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     if (!userId) return;
     setIsLoadingConversations(true);
     try {
@@ -142,40 +90,139 @@ export default function Home() {
     } finally {
       setIsLoadingConversations(false);
     }
-  };
-
-  useEffect(() => {
-    if (userId) {
-      loadConversations();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Load conversation messages
-  const loadConversation = async (conversationId: string) => {
-    try {
-      const response = await fetch(`/api/conversations/${conversationId}`);
-      const data = await response.json();
-      setMessages(data.messages || []);
-      setCurrentConversationId(conversationId);
-      
-      // Load tools for this conversation
-      loadTools(conversationId);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-    }
-  };
-
   // Load tools for conversation
-  const loadTools = async (conversationId: string | null) => {
+  const loadTools = useCallback(async (conversationId: string | null) => {
     if (!conversationId || !userId) return;
-    
+
     try {
       const response = await fetch(`/api/conversations/${conversationId}/tools?userId=${userId}`);
       const data = await response.json();
       setAvailableTools(data.tools || []);
     } catch (error) {
       console.error('Failed to load tools:', error);
+    }
+  }, [userId]);
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: '/api/chat',
+        fetch: async (input, init) => {
+          const response = await fetch(input, init);
+          const convId = response.headers.get('X-Conversation-Id');
+          if (convId && currentConversationIdRef.current !== convId) {
+            currentConversationIdRef.current = convId;
+            setCurrentConversationId(convId);
+            void loadConversations();
+            void loadTools(convId);
+          }
+          return response;
+        },
+      }),
+    [loadConversations, loadTools],
+  );
+
+  const { messages, setMessages, sendMessage, status, error, stop } = useChat({
+    transport,
+    onFinish: () => {
+      pendingAttachmentsRef.current = [];
+    },
+    onError: (hookError) => {
+      console.error('Chat error:', hookError);
+    },
+  });
+
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleFormSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const trimmed = input.trim();
+    if (!trimmed && attachments.length === 0) {
+      return;
+    }
+
+    const currentAttachments = [...attachments];
+    pendingAttachmentsRef.current = currentAttachments;
+    setAttachments([]);
+
+    requestAnimationFrame(() => {
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return prev;
+        }
+        const lastIndex = prev.length - 1;
+        const lastMessage = prev[lastIndex];
+        if (!lastMessage || lastMessage.role !== 'user') {
+          return prev;
+        }
+        const updated = [...prev];
+        const metadata = {
+          ...((lastMessage as any).metadata ?? {}),
+          attachments: currentAttachments,
+        };
+        updated[lastIndex] = { ...lastMessage, metadata } as typeof lastMessage;
+        return updated;
+      });
+    });
+
+    try {
+      await sendMessage(
+        { text: trimmed },
+        {
+          body: {
+            conversationId: currentConversationIdRef.current,
+            userId,
+            attachments: currentAttachments.map((att) => att.id),
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          },
+        },
+      );
+      setInput('');
+    } catch (err) {
+      console.error('Chat error:', err);
+      setAttachments(currentAttachments);
+      pendingAttachmentsRef.current = [];
+    }
+  };
+
+  useEffect(() => {
+    if (userId) {
+      loadConversations();
+    }
+  }, [userId, loadConversations]);
+
+  const mapDbMessageToUiMessage = (message: any) => ({
+    id: message.id,
+    role: message.role,
+    parts: [{ type: 'text', text: message.content ?? '' }],
+    metadata: {
+      attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    },
+  });
+
+  // Load conversation messages
+  const loadConversation = async (conversationId: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`);
+      const data = await response.json();
+      const history = Array.isArray(data.messages)
+        ? data.messages.map(mapDbMessageToUiMessage)
+        : [];
+      setMessages(history);
+      setCurrentConversationId(conversationId);
+      currentConversationIdRef.current = conversationId;
+
+      // Load tools for this conversation
+      await loadTools(conversationId);
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
     }
   };
 
@@ -197,7 +244,7 @@ export default function Home() {
       }
       
       // Refresh tools list
-      loadTools(currentConversationId);
+      await loadTools(currentConversationId);
     } catch (error) {
       console.error('Failed to toggle tool:', error);
       alert('Failed to update tool');
@@ -209,6 +256,8 @@ export default function Home() {
     setCurrentConversationId(null);
     setMessages([]);
     setAttachments([]);
+    setInput('');
+    currentConversationIdRef.current = null;
   };
 
   // Delete conversation
@@ -226,7 +275,7 @@ export default function Home() {
   };
 
   // Handle file upload
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -452,101 +501,148 @@ export default function Home() {
                   </div>
                 )}
                 
-                {messages.map((message: any, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
+                {messages.map((message: any, index) => {
+                  const messageKey = message.id ?? index;
+                  const messageText = Array.isArray(message.parts)
+                    ? message.parts
+                        .filter((part: any) => part.type === 'text')
+                        .map((part: any) => part.text)
+                        .join('')
+                    : typeof message.content === 'string'
+                      ? message.content
+                      : '';
+                  const toolParts = Array.isArray(message.parts)
+                    ? message.parts.filter(
+                        (part: any) =>
+                          typeof part.type === 'string' &&
+                          (part.type === 'dynamic-tool' || part.type.startsWith('tool-')),
+                      )
+                    : [];
+                  const visibleToolParts = toolParts.filter((part: any) => {
+                    const toolName =
+                      part.type === 'dynamic-tool'
+                        ? part.toolName
+                        : part.type.replace(/^tool-/, '');
+                    return toolName !== 'get_current_datetime';
+                  });
+                  const attachmentsList = Array.isArray(message.metadata?.attachments)
+                    ? message.metadata.attachments
+                    : Array.isArray(message.attachments)
+                      ? message.attachments
+                      : [];
+
+                  return (
                     <div
-                      className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                        message.role === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700'
-                      }`}
+                      key={messageKey}
+                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      {/* Attachments */}
-                      {message.attachments && message.attachments.length > 0 && (
-                        <div className="mb-2 flex flex-wrap gap-1.5">
-                          {message.attachments.map((attachment: any) => (
-                            <a
-                              key={attachment.id}
-                              href={`/api/attachments/${attachment.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
-                                message.role === 'user'
-                                  ? 'bg-blue-500 text-white hover:bg-blue-400'
-                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                              }`}
-                            >
-                              {attachment.mimetype.startsWith('image/') ? (
-                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                </svg>
-                              ) : (
-                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                              )}
-                              <span className="max-w-[100px] truncate">{attachment.filename}</span>
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Tool Invocations */}
-                      {message.toolInvocations && message.toolInvocations.length > 0 && (
-                        <div className="mb-3 space-y-2">
-                          {message.toolInvocations
-                            .filter((tool: any) => tool.toolName !== 'get_current_datetime') // Hide datetime tool from UI
-                            .map((tool: any, toolIndex: number) => (
-                              <div
-                                key={toolIndex}
-                                className="flex items-start gap-2 rounded-lg bg-gray-100 p-3 text-sm dark:bg-gray-700"
+                      <div
+                        className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                          message.role === 'user'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
+                        {/* Attachments */}
+                        {attachmentsList.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-1.5">
+                            {attachmentsList.map((attachment: any) => (
+                              <a
+                                key={attachment.id}
+                                href={`/api/attachments/${attachment.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
+                                  message.role === 'user'
+                                    ? 'bg-blue-500 text-white hover:bg-blue-400'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                                }`}
                               >
-                                {/* Tool Status Icon */}
-                                <div className="mt-0.5">
-                                  {tool.state === 'result' ? (
-                                    <svg className="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  ) : tool.state === 'call' ? (
-                                    <svg className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                  ) : (
-                                    <svg className="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  )}
-                                </div>
-                                
-                                {/* Tool Info */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-medium text-gray-900 dark:text-gray-100">
-                                    {tool.toolName.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                                  </div>
-                                  {tool.state === 'call' && (
-                                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                                      Executing...
-                                    </div>
-                                  )}
-                                  {tool.state === 'result' && (
-                                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                                      Completed
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                                {attachment.mimetype.startsWith('image/') ? (
+                                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                ) : (
+                                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                )}
+                                <span className="max-w-[100px] truncate">{attachment.filename}</span>
+                              </a>
                             ))}
-                        </div>
-                      )}
-                      
-                      <div className="whitespace-pre-wrap">{message.content}</div>
+                          </div>
+                        )}
+
+                        {/* Tool Invocations */}
+                        {visibleToolParts.length > 0 && (
+                          <div className="mb-3 space-y-2">
+                            {visibleToolParts.map((part: any, toolIndex: number) => {
+                              const rawName =
+                                part.type === 'dynamic-tool'
+                                  ? part.toolName
+                                  : part.type.replace(/^tool-/, '');
+                              const displayName = rawName
+                                .replace(/_/g, ' ')
+                                .replace(/\b\w/g, (l: string) => l.toUpperCase());
+                              const state = part.state;
+                              const isCompleted = state === 'output-available';
+                              const isError = state === 'output-error';
+                              const label = isCompleted
+                                ? part.preliminary
+                                  ? 'Preliminary result'
+                                  : 'Completed'
+                                : isError
+                                  ? 'Failed'
+                                  : 'Executing...';
+
+                              return (
+                                <div
+                                  key={toolIndex}
+                                  className="flex items-start gap-2 rounded-lg bg-gray-100 p-3 text-sm dark:bg-gray-700"
+                                >
+                                  {/* Tool Status Icon */}
+                                  <div className="mt-0.5">
+                                    {isCompleted ? (
+                                      <svg className="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    ) : isError ? (
+                                      <svg className="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    ) : (
+                                      <svg className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                    )}
+                                  </div>
+
+                                  {/* Tool Info */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-gray-900 dark:text-gray-100">
+                                      {displayName}
+                                    </div>
+                                    <div className="text-xs text-gray-600 dark:text-gray-400">
+                                      {label}
+                                    </div>
+                                    {isError && part.errorText && (
+                                      <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                        {part.errorText}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div className="whitespace-pre-wrap">{messageText}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -654,14 +750,24 @@ export default function Home() {
                   onChange={handleInputChange}
                 />
 
-                {/* Send Button */}
-                <button
-                  type="submit"
-                  disabled={isLoading || !input.trim()}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-                >
-                  Send
-                </button>
+                {/* Stop/Send Buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => stop()}
+                    disabled={!isLoading}
+                    className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    Stop
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isLoading || !input.trim()}
+                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    Send
+                  </button>
+                </div>
               </div>
             </form>
           </div>
