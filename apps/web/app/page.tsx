@@ -124,7 +124,7 @@ export default function Home() {
     [loadConversations, loadTools],
   );
 
-  const { messages, setMessages, sendMessage, status, error } = useChat({
+  const { messages, setMessages, sendMessage, status, error, stop } = useChat({
     transport,
     onFinish: () => {
       pendingAttachmentsRef.current = [];
@@ -750,14 +750,24 @@ export default function Home() {
                   onChange={handleInputChange}
                 />
 
-                {/* Send Button */}
-                <button
-                  type="submit"
-                  disabled={isLoading || !input.trim()}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-                >
-                  Send
-                </button>
+                {/* Stop/Send Buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => stop()}
+                    disabled={!isLoading}
+                    className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    Stop
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isLoading || !input.trim()}
+                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                  >
+                    Send
+                  </button>
+                </div>
               </div>
             </form>
           </div>
