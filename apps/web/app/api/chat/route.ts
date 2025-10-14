@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText, convertToModelMessages } from 'ai';
+import { streamText, convertToModelMessages, stepCountIs } from 'ai';
 import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
@@ -146,11 +146,16 @@ export async function POST(req: Request) {
           try {
             const buf = fs.readFileSync(img.path);
             const dataUrl = `data:${img.mimetype};base64,${buf.toString('base64')}`;
-            parts.push({ type: 'image', image: dataUrl });
+            parts.push({
+              type: 'file',
+              mediaType: img.mimetype || 'image/jpeg',
+              filename: img.filename,
+              url: dataUrl,
+            });
           } catch (e) {
-          console.error('Failed to embed image attachment:', img.path, e);
+            console.error('Failed to embed image attachment:', img.path, e);
+          }
         }
-      }
         normalizedMessages[normalizedMessages.length - 1].parts = parts;
       } else {
         // Fallback: text-only
@@ -318,6 +323,8 @@ You also have access to the get_current_datetime tool if you need to get the cur
       systemPrompt += '\nUse these tools when appropriate to help the user.';
     }
     
+    systemPrompt += `\n\nGuidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.`;
+    
     console.log('System prompt:', systemPrompt);
     console.log('Available tools:', Object.keys(aiTools));
     console.log('Tools list:', availableToolsList.map(t => t.name));
@@ -335,6 +342,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxOutputTokens: 4096,
       temperature: 0.7,
+      stopWhen: [stepCountIs(8)],
       onFinish: async ({ text, usage, response }) => {
         // Save assistant message to database
         try {
