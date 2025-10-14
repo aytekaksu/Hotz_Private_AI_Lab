@@ -148,6 +148,58 @@ const migrations = [
     setVersion(2);
     console.log('✓ Migration 2 completed');
   },
+  
+  // Migration 3: Agents and agent defaults + conversation agent link
+  function migration3() {
+    console.log('Running migration 3: Agents + agent tool defaults + conversation agent link');
+
+    // Agents table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        extra_system_prompt TEXT,
+        override_system_prompt TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(user_id, slug)
+      );
+    `);
+
+    // Agent default tools
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_tools (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+        UNIQUE(agent_id, tool_name)
+      );
+    `);
+
+    // Add agent_id to conversations if not exists
+    try {
+      db.exec(`ALTER TABLE conversations ADD COLUMN agent_id TEXT NULL REFERENCES agents(id) ON DELETE SET NULL;`);
+    } catch (e) {
+      // ignore if column exists
+    }
+
+    // Indexes
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
+      CREATE INDEX IF NOT EXISTS idx_agents_user_slug ON agents(user_id, slug);
+      CREATE INDEX IF NOT EXISTS idx_agent_tools_agent ON agent_tools(agent_id);
+    `);
+
+    setVersion(3);
+    console.log('✓ Migration 3 completed');
+  },
 ];
 
 // Run migrations

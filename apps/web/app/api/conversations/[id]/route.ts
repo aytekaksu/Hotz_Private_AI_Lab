@@ -19,13 +19,24 @@ export async function GET(
     
     return Response.json({ 
       conversation,
-      messages: messages.map(msg => ({
-        role: msg.role,
-        content: msg.content,
-        id: msg.id,
-        created_at: msg.created_at,
-        attachments: getAttachmentsByMessageId(msg.id),
-      }))
+      messages: messages.map(msg => {
+        let parsedParts: any[] | undefined;
+        try {
+          if (msg.tool_calls) {
+            const p = JSON.parse(msg.tool_calls);
+            if (Array.isArray(p)) parsedParts = p;
+          }
+        } catch {}
+        const partsOut: any[] = Array.isArray(parsedParts) ? (parsedParts as any[]) : [];
+        return {
+          role: msg.role,
+          content: msg.content,
+          parts: partsOut,
+          id: msg.id,
+          created_at: msg.created_at,
+          attachments: getAttachmentsByMessageId(msg.id),
+        };
+      })
     });
   } catch (error) {
     console.error('Error fetching conversation:', error);

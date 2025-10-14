@@ -141,3 +141,6 @@ Thumbs.db
 data/
 
 
+
+# Backup files
+Caddyfile.*.bak

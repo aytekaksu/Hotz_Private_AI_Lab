@@ -16,7 +16,7 @@ Key components:
 1. Client sends UI messages to `/api/chat`.
 2. Server normalizes attachments (files/images become file parts), injects a system message with current context.
 3. Tools are prepared from conversation-enabled set (+ `get_current_datetime` always available).
-4. `streamText` is called with `openrouter.chat('anthropic/claude-3.5-sonnet')`, messages and tools.
+4. `streamText` is called with `openrouter.chat('anthropic/claude-sonnet-4.5')`, messages and tools.
 5. The model may call tools (multiple steps). The SDK executes tools with `execute` handlers.
 6. Once finished, the assistant text is saved and streamed to the client.
 
@@ -55,4 +55,3 @@ The server calls `streamText` with `stopWhen: [stepCountIs(8)]`, allowing up to 
 - Images must be `file` parts; simple `image` parts won’t be recognized.
 - For calendar queries, keep outputs small; if the model needs more events, it can request `next_page_token` or increase `max_results` thoughtfully.
 - Use `stopWhen` to control step limits for iterative tool calling.
-

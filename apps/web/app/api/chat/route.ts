@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages, stepCountIs } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential } from '@/lib/db';
+import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -64,7 +64,7 @@ const toUIParts = (message: IncomingMessage): any[] => {
 
 export async function POST(req: Request) {
   try {
-    const { messages, conversationId, userId, attachments, userTimezone } = await req.json();
+    const { messages, conversationId, userId, attachments, userTimezone, agentId } = await req.json();
     const headerTimezone = req.headers.get('X-User-Timezone');
     const incomingMessages: IncomingMessage[] = Array.isArray(messages) ? messages : [];
     const normalizedMessages = incomingMessages.map(message => ({
@@ -101,11 +101,15 @@ export async function POST(req: Request) {
     if (!currentConversationId) {
       const firstMessage = extractMessageText(incomingMessages[0]) || 'New Conversation';
       const title = firstMessage.substring(0, 50);
-      const conversation = createConversation(userId, title);
+      const conversation = createConversationWithAgent(userId, title, agentId || null);
       currentConversationId = conversation.id;
       
-      // Initialize default tools (all disabled) for new conversation
-      initializeDefaultTools(currentConversationId);
+      // Initialize default tools (all disabled) for new conversation or inherit from agent
+      if (agentId) {
+        try { initializeToolsFromAgent(currentConversationId, agentId); } catch {}
+      } else {
+        initializeDefaultTools(currentConversationId);
+      }
     }
     
     if (incomingMessages.length === 0) {
@@ -180,6 +184,9 @@ export async function POST(req: Request) {
       baseURL: 'https://openrouter.ai/api/v1',
     });
     
+    // In-memory tool events captured during this response (for history)
+    const toolEvents: Array<{ type: string; toolName: string; state: string; errorText?: string }> = [];
+
     // Get enabled tools for this conversation
     const conversationTools = getConversationTools(currentConversationId);
     const enabledToolNames = conversationTools
@@ -210,9 +217,17 @@ export async function POST(req: Request) {
           parameters: toolDef.parameters,
           execute: async (args: any) => {
             console.log(`Tool called: ${toolName}`, args);
-            const result = await executeTool(toolName as ToolName, args, userId);
-            console.log(`Tool result: ${toolName}`, result);
-            return result;
+            const idx = toolEvents.push({ type: 'dynamic-tool', toolName, state: 'running' }) - 1;
+            try {
+              const result = await executeTool(toolName as ToolName, args, userId);
+              console.log(`Tool result: ${toolName}`, result);
+              toolEvents[idx] = { type: 'dynamic-tool', toolName, state: 'output-available' };
+              return result;
+            } catch (e: any) {
+              const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
+              toolEvents[idx] = { type: 'dynamic-tool', toolName, state: 'output-error', errorText: String(msg) };
+              throw e;
+            }
           },
         };
         
@@ -229,9 +244,17 @@ export async function POST(req: Request) {
       parameters: tools['get_current_datetime'].parameters,
       execute: async (args: any) => {
         console.log('Tool called: get_current_datetime', args);
-        const result = await executeTool('get_current_datetime', args, userId);
-        console.log('Tool result: get_current_datetime', result);
-        return result;
+        const idx = toolEvents.push({ type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'running' }) - 1;
+        try {
+          const result = await executeTool('get_current_datetime', args, userId);
+          console.log('Tool result: get_current_datetime', result);
+          toolEvents[idx] = { type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'output-available' };
+          return result;
+        } catch (e: any) {
+          const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
+          toolEvents[idx] = { type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'output-error', errorText: String(msg) };
+          throw e;
+        }
       },
     };
     availableToolsList.push({
@@ -299,7 +322,7 @@ export async function POST(req: Request) {
     
     const currentDateTime = `${userDate} (${timezone}, ${timezoneString})`;
     
-    // Build system prompt with available tools
+    // Build system prompt with available tools and (optional) agent prompts
     let systemPrompt = `You are a helpful AI assistant.
 
 You have access to the current date and time information:
@@ -324,6 +347,23 @@ You also have access to the get_current_datetime tool if you need to get the cur
     }
     
     systemPrompt += `\n\nGuidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.`;
+
+    // Merge agent prompts if agent is present
+    let agentSlug: string | undefined;
+    if (agentId) {
+      const agent = getAgentById(agentId);
+      if (agent) {
+        agentSlug = agent.slug;
+        const base = agent.override_system_prompt?.trim();
+        const extra = agent.extra_system_prompt?.trim();
+        if (base && base.length > 0) {
+          systemPrompt = base;
+        }
+        if (extra && extra.length > 0) {
+          systemPrompt += `\n\n[Additional Context]\n${extra}`;
+        }
+      }
+    }
     
     console.log('System prompt:', systemPrompt);
     console.log('Available tools:', Object.keys(aiTools));
@@ -337,7 +377,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
     
     // Stream response from the selected model
     const result = await streamText({
-      model: openrouter.chat('anthropic/claude-3.5-sonnet'),
+      model: openrouter.chat('anthropic/claude-sonnet-4.5'),
       messages: aiMessages,
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxOutputTokens: 4096,
@@ -369,11 +409,14 @@ You also have access to the get_current_datetime tool if you need to get the cur
               })
               .join('') ??
             '';
+          // Persist only tool call events; UI renders them below the answer
+          const assistantToolCalls = toolEvents;
+
           createMessage(
             currentConversationId,
             'assistant',
             responseText,
-            undefined,
+            assistantToolCalls,
             usage?.totalTokens
           );
           
@@ -397,6 +440,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
     return result.toUIMessageStreamResponse({
       headers: {
         'X-Conversation-Id': currentConversationId,
+        ...(agentId ? { 'X-Agent-Slug': agentSlug || '' } : {}),
       },
     });
   } catch (error) {
