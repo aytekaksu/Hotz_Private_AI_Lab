@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText } from 'ai';
+import { streamText, convertToModelMessages } from 'ai';
 import { getUserById, createMessage, getMessagesByConversationId, createConversation, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
@@ -9,11 +9,69 @@ import fs from 'fs';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+type IncomingMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content?: any;
+  parts?: Array<any>;
+  metadata?: Record<string, any>;
+};
+
+const extractTextFromParts = (parts: Array<any> | undefined): string => {
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .filter(part => part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('');
+};
+
+const extractTextFromContentArray = (content: Array<any> | undefined): string => {
+  if (!Array.isArray(content)) return '';
+  return content
+    .map(part => {
+      if (typeof part === 'string') return part;
+      if (part && typeof part === 'object' && typeof part.text === 'string') return part.text;
+      return '';
+    })
+    .join('');
+};
+
+const extractMessageText = (message: IncomingMessage): string => {
+  if (!message) return '';
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+  if (Array.isArray(message.content)) {
+    return extractTextFromContentArray(message.content);
+  }
+  if (Array.isArray(message.parts)) {
+    return extractTextFromParts(message.parts);
+  }
+  return '';
+};
+
+const toUIParts = (message: IncomingMessage): any[] => {
+  if (Array.isArray(message.parts)) {
+    return message.parts.map(part => (typeof part === 'object' && part !== null ? { ...part } : part));
+  }
+  if (Array.isArray(message.content)) {
+    return message.content.map(part => (typeof part === 'object' && part !== null ? { ...part } : part));
+  }
+  if (typeof message.content === 'string') {
+    return [{ type: 'text', text: message.content }];
+  }
+  return [{ type: 'text', text: '' }];
+};
+
 export async function POST(req: Request) {
   try {
     const { messages, conversationId, userId, attachments, userTimezone } = await req.json();
     const headerTimezone = req.headers.get('X-User-Timezone');
-    
+    const incomingMessages: IncomingMessage[] = Array.isArray(messages) ? messages : [];
+    const normalizedMessages = incomingMessages.map(message => ({
+      role: message.role,
+      parts: toUIParts(message),
+      metadata: message.metadata,
+    }));
     
     if (!userId) {
       return new Response('User ID required', { status: 401 });
@@ -41,7 +99,7 @@ export async function POST(req: Request) {
     
     // If no conversation ID, create a new conversation
     if (!currentConversationId) {
-      const firstMessage = messages[0]?.content || 'New Conversation';
+      const firstMessage = extractMessageText(incomingMessages[0]) || 'New Conversation';
       const title = firstMessage.substring(0, 50);
       const conversation = createConversation(userId, title);
       currentConversationId = conversation.id;
@@ -50,13 +108,14 @@ export async function POST(req: Request) {
       initializeDefaultTools(currentConversationId);
     }
     
-    // Create a copy of messages for AI processing
-    const aiMessages = [...messages];
+    if (incomingMessages.length === 0) {
+      return new Response('Messages required', { status: 400 });
+    }
     
     // Save user message to database (with attachment text appended when available)
-    const userMessage = messages[messages.length - 1];
+    const userMessage = incomingMessages[incomingMessages.length - 1];
     if (userMessage.role === 'user') {
-      let content = userMessage.content as string;
+      let content = extractMessageText(userMessage);
       if (Array.isArray(attachments) && attachments.length > 0) {
         const atts = getAttachmentsByIds(attachments);
         if (atts.length) {
@@ -89,14 +148,13 @@ export async function POST(req: Request) {
             const dataUrl = `data:${img.mimetype};base64,${buf.toString('base64')}`;
             parts.push({ type: 'image', image: dataUrl });
           } catch (e) {
-            console.error('Failed to embed image attachment:', img.path, e);
-          }
+          console.error('Failed to embed image attachment:', img.path, e);
         }
-        // Modify the copy, not the original
-        (aiMessages as any)[aiMessages.length - 1].content = parts;
+      }
+        normalizedMessages[normalizedMessages.length - 1].parts = parts;
       } else {
         // Fallback: text-only
-        (aiMessages as any)[aiMessages.length - 1].content = content;
+        normalizedMessages[normalizedMessages.length - 1].parts = [{ type: 'text', text: content }];
       }
       
       const saved = createMessage(currentConversationId, 'user', content);
@@ -175,6 +233,18 @@ export async function POST(req: Request) {
       name: 'get_current_datetime',
       description: tools['get_current_datetime'].description
     });
+    
+    const aiMessages = convertToModelMessages(
+      normalizedMessages.map(message => ({
+        role: message.role,
+        parts: message.parts,
+        metadata: message.metadata,
+      })),
+      {
+        tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
+        ignoreIncompleteToolCalls: true,
+      }
+    );
     
     // Get current date/time for context using user's timezone
     const now = new Date();
@@ -258,21 +328,43 @@ You also have access to the get_current_datetime tool if you need to get the cur
       content: systemPrompt
     });
     
-    // Stream response from Claude
+    // Stream response from the selected model
     const result = await streamText({
-      model: openrouter('anthropic/claude-3.5-sonnet'),
+      model: openrouter.chat('anthropic/claude-3.5-sonnet'),
       messages: aiMessages,
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
-      maxTokens: 4096,
+      maxOutputTokens: 4096,
       temperature: 0.7,
-      maxSteps: 5, // Allow multiple tool calls and continued generation
-      onFinish: async ({ text, finishReason, usage }) => {
+      onFinish: async ({ text, usage, response }) => {
         // Save assistant message to database
         try {
+          const responseText =
+            text ??
+            (response?.messages || [])
+              .filter((msg: any) => msg.role === 'assistant')
+              .map((msg: any) => {
+                if (typeof msg.content === 'string') {
+                  return msg.content;
+                }
+                if (Array.isArray(msg.content)) {
+                  return msg.content
+                    .map((part: any) => {
+                      if (typeof part === 'string') return part;
+                      if (part && typeof part === 'object' && typeof part.text === 'string') {
+                        return part.text;
+                      }
+                      return '';
+                    })
+                    .join('');
+                }
+                return '';
+              })
+              .join('') ??
+            '';
           createMessage(
             currentConversationId,
             'assistant',
-            text,
+            responseText,
             undefined,
             usage?.totalTokens
           );
@@ -294,7 +386,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
     });
     
     // Return stream with conversation ID in headers
-    return result.toDataStreamResponse({
+    return result.toUIMessageStreamResponse({
       headers: {
         'X-Conversation-Id': currentConversationId,
       },
