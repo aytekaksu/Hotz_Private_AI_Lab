@@ -1,4 +1,0 @@
-Command 'jq' not found, but can be installed with:
-snap install jq  # version 1.5+dfsg-1, or
-apt  install jq  # version 1.6-2.1ubuntu3.1
-See 'snap info jq' for additional versions.

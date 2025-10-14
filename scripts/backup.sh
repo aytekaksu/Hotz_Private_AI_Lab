@@ -17,7 +17,6 @@ docker compose stop
 echo "Creating backup archive..."
 tar -czf "${BACKUP_DIR}/${BACKUP_FILE}" \
   data/sqlite/ \
-  apps/n8n/data/ \
   .env 2>/dev/null || true
 
 # Restart services
@@ -30,6 +29,5 @@ find $BACKUP_DIR -name "backup_*.tar.gz" -mtime +7 -delete
 
 echo "Backup created: ${BACKUP_DIR}/${BACKUP_FILE}"
 echo "Backup completed successfully!"
-
 
 
