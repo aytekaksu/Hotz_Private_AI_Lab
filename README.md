@@ -45,6 +45,10 @@ docker compose up -d
 ```
 Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google/Notion when needed.
 
+Build Optimizations
+- The Docker build caches `npm ci` output, so repeat `docker compose build web` runs are near instant once warmed. Clear with `docker builder prune` if you need a fresh install.
+- The runtime container still uses Node 20; Bun is only leveraged for the Next.js build step to keep compatibility while speeding builds.
+
 Documentation
 -
 - Architecture & Tool Calling: docs/ARCHITECTURE.md

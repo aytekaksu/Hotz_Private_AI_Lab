@@ -43,6 +43,10 @@ docker compose build web
 docker compose up -d
 ```
 
+Notes
+- First build primes the cached `npm ci` layer; subsequent builds are typically sub-second. If dependencies change or you want to clear the cache, run `docker builder prune`.
+- The build stage uses Bun for `next build` but the runtime remains on Node 20 for stability.
+
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
