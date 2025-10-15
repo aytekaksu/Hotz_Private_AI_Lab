@@ -19,12 +19,12 @@ Features
 Quick Start (local)
 -
 1) Requirements
-- Node 20+, Docker, docker compose
+- Bun 1.0+, Docker, docker compose
 
 2) Install and build
 ```bash
-npm install
-npm run build
+bun install
+bun run build
 ```
 
 3) Environment
@@ -80,9 +80,14 @@ Tech Stack
 -
 - Next.js 14 (App Router), React 18, Tailwind
 - AI SDK v5 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai`) via OpenRouter
-- SQLite (better-sqlite3)
+- SQLite (better-sqlite3) with Bun runtime support in development
 - Google APIs (`googleapis`), Notion SDK (`@notionhq/client`)
 - Docker + Caddy (TLS, reverse proxy)
+
+Notes on Bun
+- Dev and builds use Bun for speed: `bun install`, `bun run dev`, `bun run build`.
+- Docker image builds with Bun but runs on Node 20 for maximum Next.js compatibility.
+- Database access prefers `bun:sqlite` when running under Bun; Node uses `better-sqlite3`.
 
 License
 -

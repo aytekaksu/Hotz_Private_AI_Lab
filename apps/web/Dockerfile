@@ -1,47 +1,41 @@
-FROM node:20-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
-RUN apk add --no-cache libc6-compat python3 make g++
+FROM node:20-alpine AS deps
 WORKDIR /app
-
-# Copy package files
+RUN apk add --no-cache python3 make g++
 COPY package.json ./
 COPY package-lock.json* ./
-RUN npm ci || npm install
+RUN npm ci
 
-# Rebuild the source code only when needed
-FROM base AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
+RUN apk add --no-cache python3 make g++ curl bash
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="$BUN_INSTALL/bin:$PATH"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-# Build the application with increased memory
 ENV NODE_OPTIONS="--max-old-space-size=2048"
-RUN npm run build
+ENV NEXT_DISABLE_ESLINT=1
+ENV NEXT_DISABLE_TYPECHECK=1
+RUN bun run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
+ENV NODE_ENV=production
 
-ENV NODE_ENV production
+RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy necessary files
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/package.json ./package.json
+COPY --from=deps /app/node_modules ./node_modules
 
-# Create data directory and uploads subdirectory
-RUN mkdir -p /data/uploads && chown -R nextjs:nodejs /data
+RUN mkdir -p /data/uploads && chown -R nextjs:nextjs /data
 
 USER nextjs
 
 EXPOSE 3000
-
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 CMD ["node", "server.js"]

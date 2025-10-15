@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import path from 'path';
 
 const DB_PATH = process.env.DATABASE_URL?.replace('file://', '') || path.join(process.cwd(), 'data', 'app.db');
@@ -6,8 +5,32 @@ const DB_PATH = process.env.DATABASE_URL?.replace('file://', '') || path.join(pr
 console.log('Database migration starting...');
 console.log('Database path:', DB_PATH);
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+// Create DB instance using Bun's sqlite when available, otherwise better-sqlite3
+// Note: kept synchronous setup to work in both runtimes
+let db: any;
+try {
+  // @ts-ignore
+  const isBun = typeof (globalThis as any).Bun !== 'undefined';
+  if (isBun) {
+    // @ts-ignore - bun:sqlite is provided by Bun at runtime
+    const { Database: BunDatabase } = require('bun:sqlite');
+    db = new BunDatabase(DB_PATH);
+  } else {
+    // @ts-ignore - CJS require for Node
+    const BetterSqlite3 = require('better-sqlite3');
+    db = new BetterSqlite3(DB_PATH);
+  }
+} catch (e) {
+  // Fallback to better-sqlite3
+  // @ts-ignore
+  const BetterSqlite3 = require('better-sqlite3');
+  db = new BetterSqlite3(DB_PATH);
+}
+
+// Enable pragmas for consistency
+try {
+  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+} catch {}
 
 // Get current schema version
 function getCurrentVersion(): number {

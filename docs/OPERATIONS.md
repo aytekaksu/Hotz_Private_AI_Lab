@@ -46,7 +46,7 @@ docker compose up -d
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
-DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db npm run db:migrate
+DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db bun run db:migrate
 ```
 
 ## Logs & Troubleshooting
@@ -70,4 +70,3 @@ SQLite lives in `./data/sqlite` (mounted into the container). Include this direc
 - Secrets encrypted at rest (AES‑256‑GCM) using `APP_ENCRYPTION_KEY`.
 - OAuth tokens stored encrypted; rotate keys periodically.
 - Ensure TLS is correctly provisioned by Caddy; keep tokens out of logs.
-

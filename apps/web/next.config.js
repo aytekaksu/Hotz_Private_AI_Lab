@@ -14,6 +14,7 @@ const nextConfig = {
     // Externalize better-sqlite3 for server-side
     config.externals.push({
       'better-sqlite3': 'commonjs better-sqlite3',
+      'bun:sqlite': 'commonjs bun:sqlite',
     });
     
     // Optimize for development
@@ -29,4 +30,3 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-

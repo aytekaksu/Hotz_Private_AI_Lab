@@ -1,16 +1,43 @@
-import Database from 'better-sqlite3';
 import { encryptField, decryptField } from '../encryption';
 
-let db: Database.Database | null = null;
+type DBLike = {
+  exec: (sql: string) => unknown;
+  prepare: (sql: string) => any;
+  close: () => void;
+};
 
-export function getDb(): Database.Database {
+let db: DBLike | null = null;
+
+export function getDb(): DBLike {
   if (!db) {
     const dbPath = process.env.DATABASE_URL?.replace('file://', '') || './data/app.db';
-    db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    // Prefer bun:sqlite when running under Bun, fallback to better-sqlite3 on Node
+    try {
+      // @ts-ignore - require available in Node/Bun
+      const isBun = typeof (globalThis as any).Bun !== 'undefined';
+      if (isBun) {
+        // @ts-ignore - bun:sqlite is provided by Bun at runtime
+        const { Database: BunDatabase } = require('bun:sqlite');
+        const instance = new BunDatabase(dbPath);
+        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+        db = instance;
+      } else {
+        // @ts-ignore - CJS require for Node
+        const BetterSqlite3 = require('better-sqlite3');
+        const instance = new BetterSqlite3(dbPath);
+        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+        db = instance;
+      }
+    } catch (e) {
+      // Final fallback to better-sqlite3 if bun:sqlite is unavailable
+      // @ts-ignore - CJS require for Node
+      const BetterSqlite3 = require('better-sqlite3');
+      const instance = new BetterSqlite3(dbPath);
+      instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+      db = instance;
+    }
   }
-  return db;
+  return db!;
 }
 
 // Types

@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+Dockerfile
+.env*
+!\.env.example
+dist
+build
+*.log
+.DS_Store
+data
+coverage

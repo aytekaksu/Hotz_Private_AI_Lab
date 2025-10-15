@@ -6,12 +6,11 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "cd apps/web && npm run dev",
-    "build": "cd apps/web && npm run build",
-    "start": "cd apps/web && npm run start",
-    "db:migrate": "cd apps/web && npm run db:migrate"
+    "dev": "cd apps/web && bun run dev",
+    "build": "cd apps/web && bun run build",
+    "start": "cd apps/web && bun run start",
+    "db:migrate": "cd apps/web && bun run db:migrate"
   }
 }
-
 
 

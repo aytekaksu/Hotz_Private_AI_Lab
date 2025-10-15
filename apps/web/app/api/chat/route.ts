@@ -5,6 +5,7 @@ import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,17 +50,65 @@ const extractMessageText = (message: IncomingMessage): string => {
   return '';
 };
 
+const sanitizePart = (part: any): any => {
+  if (!part || typeof part !== 'object') {
+    const text = typeof part === 'string' ? part : JSON.stringify(part ?? '');
+    return { type: 'text', text };
+  }
+
+  const type = part.type;
+
+  if (type === 'text') {
+    return {
+      type: 'text' as const,
+      text: typeof part.text === 'string' ? part.text : String(part.text ?? ''),
+    };
+  }
+
+  if (type === 'file' && typeof part.url === 'string') {
+    return {
+      type: 'file' as const,
+      mediaType: typeof part.mediaType === 'string' ? part.mediaType : 'application/octet-stream',
+      filename: typeof part.filename === 'string' ? part.filename : undefined,
+      url: part.url,
+    };
+  }
+
+  if (type === 'image' && typeof part.image === 'string') {
+    return {
+      type: 'image' as const,
+      image: part.image,
+      providerMetadata: part.providerMetadata,
+    };
+  }
+
+  if (typeof type === 'string' && (type === 'dynamic-tool' || type.startsWith('tool-'))) {
+    const toolName = part.toolName || type.replace(/^tool-/, '');
+    const state = part.state ? ` (${part.state})` : '';
+    const message = part.errorText
+      ? `${toolName}${state}: ${part.errorText}`
+      : `${toolName}${state}`;
+    return { type: 'text' as const, text: `[tool] ${message}` };
+  }
+
+  if (typeof part.text === 'string') {
+    return { type: 'text' as const, text: part.text };
+  }
+
+  return { type: 'text' as const, text: JSON.stringify(part) };
+};
+
 const toUIParts = (message: IncomingMessage): any[] => {
   if (Array.isArray(message.parts)) {
-    return message.parts.map(part => (typeof part === 'object' && part !== null ? { ...part } : part));
+    return message.parts.map(part => sanitizePart(part));
   }
   if (Array.isArray(message.content)) {
-    return message.content.map(part => (typeof part === 'object' && part !== null ? { ...part } : part));
+    return message.content.map(part => sanitizePart(part));
   }
   if (typeof message.content === 'string') {
-    return [{ type: 'text', text: message.content }];
+    return [{ type: 'text' as const, text: message.content }];
   }
-  return [{ type: 'text', text: '' }];
+  return [{ type: 'text' as const, text: '' }];
 };
 
 export async function POST(req: Request) {
@@ -185,7 +234,16 @@ export async function POST(req: Request) {
     });
     
     // In-memory tool events captured during this response (for history)
-    const toolEvents: Array<{ type: string; toolName: string; state: string; errorText?: string }> = [];
+    const toolEvents: Array<{
+      type: 'dynamic-tool';
+      toolName: string;
+      toolCallId: string;
+      state: 'output-available' | 'output-error';
+      input: unknown;
+      output?: unknown;
+      errorText?: string;
+      preliminary?: boolean;
+    }> = [];
 
     // Get enabled tools for this conversation
     const conversationTools = getConversationTools(currentConversationId);
@@ -217,15 +275,29 @@ export async function POST(req: Request) {
           parameters: toolDef.parameters,
           execute: async (args: any) => {
             console.log(`Tool called: ${toolName}`, args);
-            const idx = toolEvents.push({ type: 'dynamic-tool', toolName, state: 'running' }) - 1;
+            const toolCallId = randomUUID();
             try {
               const result = await executeTool(toolName as ToolName, args, userId);
               console.log(`Tool result: ${toolName}`, result);
-              toolEvents[idx] = { type: 'dynamic-tool', toolName, state: 'output-available' };
+              toolEvents.push({
+                type: 'dynamic-tool',
+                toolName,
+                toolCallId,
+                state: 'output-available',
+                input: args,
+                output: result,
+              });
               return result;
             } catch (e: any) {
               const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
-              toolEvents[idx] = { type: 'dynamic-tool', toolName, state: 'output-error', errorText: String(msg) };
+              toolEvents.push({
+                type: 'dynamic-tool',
+                toolName,
+                toolCallId,
+                state: 'output-error',
+                input: args,
+                errorText: String(msg),
+              });
               throw e;
             }
           },
@@ -244,15 +316,29 @@ export async function POST(req: Request) {
       parameters: tools['get_current_datetime'].parameters,
       execute: async (args: any) => {
         console.log('Tool called: get_current_datetime', args);
-        const idx = toolEvents.push({ type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'running' }) - 1;
+        const toolCallId = randomUUID();
         try {
           const result = await executeTool('get_current_datetime', args, userId);
           console.log('Tool result: get_current_datetime', result);
-          toolEvents[idx] = { type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'output-available' };
+          toolEvents.push({
+            type: 'dynamic-tool',
+            toolName: 'get_current_datetime',
+            toolCallId,
+            state: 'output-available',
+            input: args,
+            output: result,
+          });
           return result;
         } catch (e: any) {
           const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
-          toolEvents[idx] = { type: 'dynamic-tool', toolName: 'get_current_datetime', state: 'output-error', errorText: String(msg) };
+          toolEvents.push({
+            type: 'dynamic-tool',
+            toolName: 'get_current_datetime',
+            toolCallId,
+            state: 'output-error',
+            input: args,
+            errorText: String(msg),
+          });
           throw e;
         }
       },
@@ -261,18 +347,6 @@ export async function POST(req: Request) {
       name: 'get_current_datetime',
       description: tools['get_current_datetime'].description
     });
-    
-    const aiMessages = convertToModelMessages(
-      normalizedMessages.map(message => ({
-        role: message.role,
-        parts: message.parts,
-        metadata: message.metadata,
-      })),
-      {
-        tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
-        ignoreIncompleteToolCalls: true,
-      }
-    );
     
     // Get current date/time for context using user's timezone
     const now = new Date();
@@ -369,12 +443,23 @@ You also have access to the get_current_datetime tool if you need to get the cur
     console.log('Available tools:', Object.keys(aiTools));
     console.log('Tools list:', availableToolsList.map(t => t.name));
     
-    // Insert system message at the start
-    aiMessages.unshift({
-      role: 'system',
-      content: systemPrompt
+    const uiMessagesForModel = [
+      {
+        role: 'system' as const,
+        parts: [{ type: 'text' as const, text: systemPrompt }],
+      },
+      ...normalizedMessages.map(message => ({
+        role: message.role,
+        parts: message.parts,
+        metadata: message.metadata,
+      })),
+    ];
+
+    const aiMessages = convertToModelMessages(uiMessagesForModel, {
+      tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
+      ignoreIncompleteToolCalls: true,
     });
-    
+
     // Stream response from the selected model
     const result = await streamText({
       model: openrouter.chat('anthropic/claude-sonnet-4.5'),
@@ -445,12 +530,18 @@ You also have access to the get_current_datetime tool if you need to get the cur
     });
   } catch (error) {
     console.error('Chat API error:', error);
+    const isRetryError = typeof error === 'object' && error !== null && 'reason' in error && (error as any).reason === 'maxRetriesExceeded';
+    const message = error instanceof Error ? error.message : 'An error occurred';
+    const responseMessage = isRetryError
+      ? 'Upstream model timed out before responding. Please try again in a moment.'
+      : message;
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'An error occurred' 
+        error: responseMessage,
+        detail: message,
       }),
       { 
-        status: 500,
+        status: isRetryError ? 504 : 500,
         headers: { 'Content-Type': 'application/json' },
       }
     );
