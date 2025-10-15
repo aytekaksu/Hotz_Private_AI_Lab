@@ -3,11 +3,11 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json ./
 COPY package-lock.json* ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --cache /root/.npm --prefer-offline --no-audit --no-fund
 
 FROM node:20-alpine AS builder
 WORKDIR /app
-RUN apk add --no-cache python3 make g++ curl bash
+RUN apk add --no-cache python3 make g++ curl bash unzip
 RUN curl -fsSL https://bun.sh/install | bash
 ENV BUN_INSTALL="/root/.bun"
 ENV PATH="$BUN_INSTALL/bin:$PATH"
