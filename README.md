@@ -51,6 +51,18 @@ Documentation
 - Operations & Deployment: docs/OPERATIONS.md
 - Changelog: CHANGELOG.md
 
+Deploy
+-
+- One‑command deploy to production (Docker + Caddy):
+  - Requirements: Docker, docker compose, valid `.env` with production values (see docs/OPERATIONS.md)
+  - Command: `npm run deploy`
+  - What it does:
+    - Builds the `web` image
+    - Restarts the `web` service
+    - Runs database migrations idempotently
+    - Prints service status and hits `/api/health`
+
+
 Configuration
 -
 Core

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getConversationsByUserId } from '@/lib/db';
+import { getConversationsByUserId, createConversationWithAgent, initializeDefaultTools, initializeToolsFromAgent } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,29 @@ export async function GET(req: NextRequest) {
     console.error('Error fetching conversations:', error);
     return Response.json(
       { error: 'Failed to fetch conversations' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId, agentId } = await req.json();
+    if (!userId || typeof userId !== 'string') {
+      return Response.json({ error: 'User ID required' }, { status: 400 });
+    }
+
+    const conversation = createConversationWithAgent(userId, 'New Conversation', agentId || null);
+    if (agentId) {
+      try { initializeToolsFromAgent(conversation.id, agentId); } catch {}
+    } else {
+      initializeDefaultTools(conversation.id);
+    }
+    return Response.json({ conversation });
+  } catch (error) {
+    console.error('Error creating conversation:', error);
+    return Response.json(
+      { error: 'Failed to create conversation' },
       { status: 500 }
     );
   }

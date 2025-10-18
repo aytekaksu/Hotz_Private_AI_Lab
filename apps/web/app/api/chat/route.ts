@@ -377,7 +377,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
     
     // Stream response from the selected model
     const result = await streamText({
-      model: openrouter.chat('anthropic/claude-sonnet-4.5'),
+      model: openrouter.chat('anthropic/claude-haiku-4.5'),
       messages: aiMessages,
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxOutputTokens: 4096,

@@ -3,15 +3,28 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
+  color-scheme: dark;
+  /* Pure black/white theme */
+  --background: #0a0a0a;
+  --background-muted: #111111;
+  --foreground: #f5f5f5;
+  --foreground-muted: #a3a3a3;
+  --border: rgba(245, 245, 245, 0.14);
+  --card: rgba(255, 255, 255, 0.06);
+  --accent: #ffffff;
+  --accent-foreground: #000000;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f172a;
-    --foreground: #e2e8f0;
-  }
+.dark {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --background-muted: #111111;
+  --foreground: #f5f5f5;
+  --foreground-muted: #a3a3a3;
+  --border: rgba(245, 245, 245, 0.14);
+  --card: rgba(255, 255, 255, 0.06);
+  --accent: #ffffff;
+  --accent-foreground: #000000;
 }
 
 html {
@@ -29,8 +42,8 @@ body {
 }
 
 ::selection {
-  background: rgba(59, 130, 246, 0.28);
-  color: #f7fafc;
+  background: rgba(255, 255, 255, 0.2);
+  color: #000000;
 }
 
 @layer utilities {
@@ -50,15 +63,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.22);
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.45);
+  background: rgba(255, 255, 255, 0.36);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(59, 130, 246, 0.35) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }

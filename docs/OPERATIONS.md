@@ -43,6 +43,22 @@ docker compose build web
 docker compose up -d
 ```
 
+Quick Deploy Script
+```
+npm run deploy
+```
+- Builds the `web` image (Next.js app)
+- Restarts only the `web` service
+- Executes DB migrations against `./data/sqlite/app.db` (idempotent)
+- Prints `docker compose ps` and performs a lightweight `/api/health` check
+
+Script location: `scripts/deploy.sh`
+
+Prereqs
+- `.env` configured for production (see Configuration)
+- Docker and docker compose installed
+- Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
+
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
@@ -70,4 +86,3 @@ SQLite lives in `./data/sqlite` (mounted into the container). Include this direc
 - Secrets encrypted at rest (AES‑256‑GCM) using `APP_ENCRYPTION_KEY`.
 - OAuth tokens stored encrypted; rotate keys periodically.
 - Ensure TLS is correctly provisioned by Caddy; keep tokens out of logs.
-
