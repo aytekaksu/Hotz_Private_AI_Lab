@@ -43,14 +43,26 @@ docker compose build web
 docker compose up -d
 ```
 
-Notes
-- First build primes the cached `npm ci` layer; subsequent builds are typically sub-second. If dependencies change or you want to clear the cache, run `docker builder prune`.
-- The build stage uses Bun for `next build` but the runtime remains on Node 20 for stability.
+Quick Deploy Script
+```
+npm run deploy
+```
+- Builds the `web` image (Next.js app)
+- Restarts only the `web` service
+- Executes DB migrations against `./data/sqlite/app.db` (idempotent)
+- Prints `docker compose ps` and performs a lightweight `/api/health` check
+
+Script location: `scripts/deploy.sh`
+
+Prereqs
+- `.env` configured for production (see Configuration)
+- Docker and docker compose installed
+- Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
 
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
-DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db bun run db:migrate
+DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db npm run db:migrate
 ```
 
 ## Logs & Troubleshooting

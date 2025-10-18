@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -22,12 +23,10 @@ export default function SettingsPage() {
         router.push('/');
         return;
       }
-      
-      // Verify user exists
+
       try {
         const response = await fetch(`/api/users/${storedUserId}`);
         if (!response.ok) {
-          // User doesn't exist, redirect to home to create new user
           localStorage.removeItem('userId');
           router.push('/');
           return;
@@ -38,11 +37,11 @@ export default function SettingsPage() {
         router.push('/');
         return;
       }
-      
+
       setUserId(storedUserId);
-      loadSettings(storedUserId);
+      await loadSettings(storedUserId);
     };
-    
+
     initSettings();
   }, [router]);
 
@@ -51,13 +50,11 @@ export default function SettingsPage() {
     try {
       const response = await fetch(`/api/settings/openrouter-key?userId=${uid}`);
       const data = await response.json();
-      
       if (data.hasKey) {
-        setOpenRouterKey('••••••••••••••••'); // Masked
+        setOpenRouterKey('••••••••••••••••');
         setHasExistingKey(true);
       }
 
-      // Check OAuth connections
       const statusResponse = await fetch(`/api/status?userId=${uid}`);
       const statusData = await statusResponse.json();
       setGoogleConnected(statusData.google_connected || false);
@@ -71,10 +68,9 @@ export default function SettingsPage() {
 
   const saveOpenRouterKey = async () => {
     if (!openRouterKey || openRouterKey.startsWith('••••')) return;
-    
     setIsSavingKey(true);
     setKeySaved(false);
-    
+
     try {
       const response = await fetch('/api/settings/openrouter-key', {
         method: 'POST',
@@ -100,12 +96,9 @@ export default function SettingsPage() {
   };
 
   const removeOpenRouterKey = async () => {
-    if (!confirm('Are you sure you want to remove your OpenRouter API key? This will disable AI functionality.')) {
-      return;
-    }
-    
+    if (!confirm('Remove your OpenRouter API key? This will disable AI functionality.')) return;
     setIsRemovingKey(true);
-    
+
     try {
       const response = await fetch('/api/settings/openrouter-key', {
         method: 'DELETE',
@@ -138,13 +131,12 @@ export default function SettingsPage() {
   };
 
   const disconnectGoogle = async () => {
-    if (!confirm('Are you sure you want to disconnect your Google account? This will disable Calendar and Tasks features.')) return;
-    
+    if (!confirm('Disconnect Google? Calendar and Tasks features will be disabled.')) return;
     try {
       const response = await fetch(`/api/auth/google?userId=${userId}`, { method: 'DELETE' });
       if (response.ok) {
         setGoogleConnected(false);
-        alert('Google account disconnected successfully');
+        alert('Google disconnected successfully');
       } else {
         throw new Error('Failed to disconnect');
       }
@@ -155,14 +147,13 @@ export default function SettingsPage() {
   };
 
   const reconnectGoogle = () => {
-    if (confirm('Reconnect your Google account? This will replace your current connection.')) {
+    if (confirm('Reconnect your Google account? This replaces the current connection.')) {
       connectGoogle();
     }
   };
 
   const disconnectNotion = async () => {
     if (!confirm('Disconnect Notion account?')) return;
-    
     try {
       await fetch(`/api/auth/notion?userId=${userId}`, { method: 'DELETE' });
       setNotionConnected(false);
@@ -174,199 +165,180 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-gray-600 dark:text-gray-400">Loading settings...</div>
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted">
+        Loading settings…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="mx-auto max-w-4xl p-6">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Settings</h1>
-          <button
-            onClick={() => router.push('/')}
-            className="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-          >
-            ← Back to Chat
-          </button>
-        </div>
-
-        {/* OpenRouter API Key */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-            OpenRouter API Key
-          </h2>
-          <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Your API key is used to access AI models through OpenRouter. Get your key from{' '}
-            <a
-              href="https://openrouter.ai/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline dark:text-blue-400"
-            >
-              openrouter.ai/keys
-            </a>
-          </p>
-          {hasExistingKey && (
-            <div className="mb-4 rounded-lg bg-green-50 p-3 dark:bg-green-900/20">
-              <div className="flex items-center gap-2">
-                <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                <span className="text-sm font-medium text-green-800 dark:text-green-200">
-                  API key is configured and working
-                </span>
-              </div>
-            </div>
-          )}
-          
-          <div className="flex gap-3">
-            <input
-              type="text"
-              placeholder={hasExistingKey ? "Enter new API key to replace existing one" : "sk-or-v1-..."}
-              value={openRouterKey}
-              onChange={(e) => setOpenRouterKey(e.target.value)}
-              className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-600 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-            <button
-              onClick={saveOpenRouterKey}
-              disabled={isSavingKey || !openRouterKey || openRouterKey.startsWith('••••')}
-              className="rounded-lg bg-blue-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-            >
-              {isSavingKey ? 'Saving...' : hasExistingKey ? 'Update' : 'Save'}
-            </button>
-            {hasExistingKey && (
-              <button
-                onClick={removeOpenRouterKey}
-                disabled={isRemovingKey}
-                className="rounded-lg bg-red-600 px-6 py-2 font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-              >
-                {isRemovingKey ? 'Removing...' : 'Remove'}
-              </button>
-            )}
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto max-w-5xl px-6 py-12 md:px-10">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.4em] text-muted">Control center</p>
+            <h1 className="mt-2 text-2xl font-semibold">Settings</h1>
+            <p className="mt-2 text-sm text-muted">Manage API keys, connected services, and workspace preferences.</p>
           </div>
-          {keySaved && (
-            <div className="mt-2 text-sm text-green-600 dark:text-green-400">
-              ✓ API key {hasExistingKey ? 'updated' : 'saved'} successfully
-            </div>
-          )}
-        </div>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <button
+              onClick={() => router.push('/')}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm text-muted transition hover:border-accent hover:text-foreground"
+            >
+              ← Back to chat
+            </button>
+          </div>
+        </header>
 
-        {/* Google OAuth */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-            Google Integration
-          </h2>
-          <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Connect your Google account to access Calendar and Tasks. The AI assistant can view, create, and manage your events and tasks.
-          </p>
-          
-          {googleConnected && (
-            <div className="mb-4 rounded-lg bg-green-50 p-3 dark:bg-green-900/20">
-              <div className="flex items-center gap-2">
-                <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                <span className="text-sm font-medium text-green-800 dark:text-green-200">
-                  Google account connected with Calendar and Tasks access
-                </span>
-              </div>
-            </div>
-          )}
-          
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className={`h-3 w-3 rounded-full ${
-                  googleConnected ? 'bg-green-500' : 'bg-gray-300'
-                }`}
-              />
+        <div className="mt-10 grid gap-6 lg:grid-cols-2">
+          <section className="rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
+            <div className="flex items-center justify-between">
               <div>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {googleConnected ? 'Connected' : 'Not connected'}
-                </span>
-                {googleConnected && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Permissions: Calendar, Tasks
-                  </p>
+                <h2 className="text-lg font-semibold">OpenRouter API Key</h2>
+                <p className="text-xs text-muted">Authenticate requests to OpenRouter. Keys are encrypted locally.</p>
+              </div>
+              {keySaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
+            </div>
+            <div className="mt-4 space-y-3">
+              <input
+                type="password"
+                value={openRouterKey}
+                onChange={(event) => setOpenRouterKey(event.target.value)}
+                placeholder="sk-or-..."
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={saveOpenRouterKey}
+                  disabled={isSavingKey}
+                  className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:opacity-60"
+                >
+                  {isSavingKey ? 'Saving…' : hasExistingKey ? 'Update Key' : 'Save Key'}
+                </button>
+                {hasExistingKey && (
+                  <button
+                    type="button"
+                    onClick={removeOpenRouterKey}
+                    disabled={isRemovingKey}
+                    className="text-sm text-muted hover:text-foreground disabled:opacity-60"
+                  >
+                    {isRemovingKey ? 'Removing…' : 'Remove key'}
+                  </button>
                 )}
               </div>
+              <p className="text-xs text-muted">
+                Your key is stored encrypted at rest. Removing it immediately signs the workspace out of OpenRouter.
+              </p>
             </div>
-            <div className="flex gap-2">
-              {googleConnected ? (
-                <>
-                  <button
-                    onClick={reconnectGoogle}
-                    className="rounded-lg bg-blue-100 px-4 py-2 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
-                  >
-                    Reconnect
-                  </button>
-                  <button
-                    onClick={disconnectGoogle}
-                    className="rounded-lg bg-red-100 px-4 py-2 text-red-700 transition-colors hover:bg-red-200 dark:bg-red-900 dark:text-red-200 dark:hover:bg-red-800"
-                  >
-                    Disconnect
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={connectGoogle}
-                  className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
-                >
-                  Connect Google
-                </button>
-              )}
+          </section>
+
+          <section className="rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
+            <h2 className="text-lg font-semibold">Connected services</h2>
+            <p className="mt-1 text-xs text-muted">
+              Link your Google and Notion accounts to unlock scheduling, task automation, and workspace syncing.
+            </p>
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-border bg-surface/80 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Google Workspace</p>
+                    <p className="text-xs text-muted">Calendar and Tasks integrations</p>
+                  </div>
+                  {googleConnected ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-border px-3 py-1 text-xs font-medium text-muted">
+                      Not connected
+                    </span>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {googleConnected ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={reconnectGoogle}
+                        className="rounded-full border border-border px-4 py-2 text-sm text-muted transition hover:border-accent hover:text-foreground"
+                      >
+                        Reconnect
+                      </button>
+                      <button
+                        type="button"
+                        onClick={disconnectGoogle}
+                        className="text-sm text-muted transition hover:text-red-400"
+                      >
+                        Disconnect
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={connectGoogle}
+                      className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+                    >
+                      Connect Google
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-surface/80 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Notion</p>
+                    <p className="text-xs text-muted">Sync notes and databases</p>
+                  </div>
+                  {notionConnected ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-border px-3 py-1 text-xs font-medium text-muted">
+                      Not connected
+                    </span>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {notionConnected ? (
+                    <button
+                      type="button"
+                      onClick={disconnectNotion}
+                      className="text-sm text-muted transition hover:text-red-400"
+                    >
+                      Disconnect Notion
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={connectNotion}
+                      className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+                    >
+                      Connect Notion
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
         </div>
 
-        {/* Notion OAuth */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-            Notion Integration
-          </h2>
-          <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Connect your Notion account to manage pages and databases
-          </p>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className={`h-3 w-3 rounded-full ${
-                  notionConnected ? 'bg-green-500' : 'bg-gray-300'
-                }`}
-              />
-              <span className="text-gray-900 dark:text-white">
-                {notionConnected ? 'Connected' : 'Not connected'}
-              </span>
+        <section className="mt-6 rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Workspace tips</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 text-sm text-muted">
+              <strong className="block text-foreground">Keep prompts visible</strong>
+              Turn on “System” theme to mirror your OS in both browser and desktop. Prompts remain in view while composing.
             </div>
-            {notionConnected ? (
-              <button
-                onClick={disconnectNotion}
-                className="rounded-lg bg-red-100 px-4 py-2 text-red-700 transition-colors hover:bg-red-200 dark:bg-red-900 dark:text-red-200 dark:hover:bg-red-800"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                onClick={connectNotion}
-                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
-              >
-                Connect Notion
-              </button>
-            )}
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 text-sm text-muted">
+              <strong className="block text-foreground">Manage conversations</strong>
+              Use the sidebar to pin important threads and rename them for quick recall.
+            </div>
           </div>
-        </div>
-
-        {/* Info */}
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            <strong>Note:</strong> All credentials are encrypted and stored securely. The AI assistant
-            uses these connections to perform tasks on your behalf.
-          </p>
-        </div>
+        </section>
       </div>
     </div>
   );
