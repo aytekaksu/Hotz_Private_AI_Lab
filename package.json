@@ -2,6 +2,7 @@
   "name": "ai-assistant-workspace",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@10.8.2",
   "workspaces": [
     "apps/*"
   ],
@@ -13,4 +14,3 @@
     "deploy": "bash scripts/deploy.sh"
   }
 }
-

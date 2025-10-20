@@ -50,65 +50,18 @@ const extractMessageText = (message: IncomingMessage): string => {
   return '';
 };
 
-const sanitizePart = (part: any): any => {
-  if (!part || typeof part !== 'object') {
-    const text = typeof part === 'string' ? part : JSON.stringify(part ?? '');
-    return { type: 'text', text };
-  }
-
-  const type = part.type;
-
-  if (type === 'text') {
-    return {
-      type: 'text' as const,
-      text: typeof part.text === 'string' ? part.text : String(part.text ?? ''),
-    };
-  }
-
-  if (type === 'file' && typeof part.url === 'string') {
-    return {
-      type: 'file' as const,
-      mediaType: typeof part.mediaType === 'string' ? part.mediaType : 'application/octet-stream',
-      filename: typeof part.filename === 'string' ? part.filename : undefined,
-      url: part.url,
-    };
-  }
-
-  if (type === 'image' && typeof part.image === 'string') {
-    return {
-      type: 'image' as const,
-      image: part.image,
-      providerMetadata: part.providerMetadata,
-    };
-  }
-
-  if (typeof type === 'string' && (type === 'dynamic-tool' || type.startsWith('tool-'))) {
-    const toolName = part.toolName || type.replace(/^tool-/, '');
-    const state = part.state ? ` (${part.state})` : '';
-    const message = part.errorText
-      ? `${toolName}${state}: ${part.errorText}`
-      : `${toolName}${state}`;
-    return { type: 'text' as const, text: `[tool] ${message}` };
-  }
-
-  if (typeof part.text === 'string') {
-    return { type: 'text' as const, text: part.text };
-  }
-
-  return { type: 'text' as const, text: JSON.stringify(part) };
-};
-
+// Keep original parts as-is to preserve tool call metadata for UI chips
 const toUIParts = (message: IncomingMessage): any[] => {
   if (Array.isArray(message.parts)) {
-    return message.parts.map(part => sanitizePart(part));
+    return message.parts.map((part) => (typeof part === 'object' && part !== null ? { ...part } : part));
   }
   if (Array.isArray(message.content)) {
-    return message.content.map(part => sanitizePart(part));
+    return message.content.map((part) => (typeof part === 'object' && part !== null ? { ...part } : part));
   }
   if (typeof message.content === 'string') {
-    return [{ type: 'text' as const, text: message.content }];
+    return [{ type: 'text', text: message.content }];
   }
-  return [{ type: 'text' as const, text: '' }];
+  return [{ type: 'text', text: '' }];
 };
 
 export async function POST(req: Request) {

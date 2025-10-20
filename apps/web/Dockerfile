@@ -3,7 +3,13 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json ./
 COPY package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --cache /root/.npm --prefer-offline --no-audit --no-fund
+# Prefer reproducible installs; fall back when no lockfile
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then \
+      npm ci --cache /root/.npm --prefer-offline --no-audit --no-fund; \
+    else \
+      npm install --cache /root/.npm --prefer-offline --no-audit --no-fund; \
+    fi
 
 FROM node:20-alpine AS builder
 WORKDIR /app
