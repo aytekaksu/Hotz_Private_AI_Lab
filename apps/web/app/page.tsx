@@ -346,6 +346,13 @@ export default function Home() {
         } catch (error) {
           console.error('Post-finish refresh failed:', error);
         }
+
+        // Navigate to the newly created conversation route so refresh keeps context
+        const agentSlug = currentAgentSlugRef.current;
+        const newPath = agentSlug ? `/${agentSlug}/${convId}` : `/chat/${convId}`;
+        if (typeof newPath === 'string' && newPath.length > 0) {
+          router.replace(newPath);
+        }
       }
     },
     onError: (hookError) => {
@@ -1026,7 +1033,6 @@ export default function Home() {
           if (looksLikeTool) {
             const name = (part as any).toolName || (part as any).name || typeStr;
             const state = (part as any).state || ((part as any).result ? 'output-available' : 'running');
-            // Only add if not already present from toolInvocations
             if (!chips.some(c => c.name === name)) {
               chips.push({ name: String(name), state: String(state) });
             }
@@ -1037,32 +1043,40 @@ export default function Home() {
 
     if (chips.length === 0) return null;
 
+    const Icon = ({ state }: { state: string }) => {
+      if (state === 'output-available') {
+        return (
+          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
+            <path d="M5 10.5 8.5 14 15 6.5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        );
+      }
+      if (state === 'output-error') {
+        return (
+          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
+            <path d="M6 6 14 14M14 6 6 14" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        );
+      }
+      // running
+      return (
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 animate-spin text-foreground" fill="none" stroke="currentColor">
+          <circle className="opacity-20" cx="12" cy="12" r="9" strokeWidth="2" />
+          <path className="opacity-80" d="M21 12a9 9 0 0 1-9 9" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      );
+    };
+
     return (
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {chips.map((c, idx) => (
           <span
             key={`${c.name}-${idx}`}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-              c.state === 'output-available'
-                ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400'
-                : c.state === 'output-error'
-                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400'
-                : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
-            }`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-muted hover:text-foreground transition"
+            title={`${prettyToolName(c.name)} — ${c.state === 'output-available' ? 'Done' : c.state === 'output-error' ? 'Error' : 'Running'}`}
           >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                c.state === 'output-available'
-                  ? 'bg-green-500'
-                  : c.state === 'output-error'
-                  ? 'bg-red-500'
-                  : 'bg-blue-500 animate-pulse'
-              }`}
-            />
-            {prettyToolName(c.name)}
-            <span className="text-[10px] uppercase tracking-[0.2em] font-medium">
-              {c.state === 'output-available' ? 'Done' : c.state === 'output-error' ? 'Error' : 'Running'}
-            </span>
+            <Icon state={c.state} />
+            <span className="truncate max-w-[140px]">{prettyToolName(c.name)}</span>
           </span>
         ))}
       </div>
