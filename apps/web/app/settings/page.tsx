@@ -175,19 +175,25 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-5xl px-6 py-12 md:px-10">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase tracking-[0.4em] text-muted">Control center</p>
-            <h1 className="mt-2 text-2xl font-semibold">Settings</h1>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={() => router.push('/')}
+                className="inline-flex items-center gap-2 rounded-full border border-transparent px-3 py-1.5 text-sm text-muted transition hover:border-border hover:text-foreground"
+                aria-label="Back to home"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                  <path d="M3 9.5 10 3l7 6.5M6 17v-5h8v5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Back to home
+              </button>
+              <h1 className="truncate text-2xl font-semibold">Settings</h1>
+            </div>
             <p className="mt-2 text-sm text-muted">Manage API keys, connected services, and workspace preferences.</p>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <button
-              onClick={() => router.push('/')}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm text-muted transition hover:border-accent hover:text-foreground"
-            >
-              ← Back to chat
-            </button>
           </div>
         </header>
 
