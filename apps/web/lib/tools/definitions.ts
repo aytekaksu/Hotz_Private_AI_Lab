@@ -47,7 +47,11 @@ export const tools = {
   list_tasks: {
     description: 'Get all tasks from a task list. Use this to see what tasks are pending, their due dates, and status.',
     parameters: z.object({
-      task_list_id: z.string().optional().describe('Task list ID (defaults to primary task list)'),
+      task_list_id: z.string().optional().describe('Task list ID (defaults to primary list)'),
+      include_completed: z.boolean().optional().describe('Include completed tasks (default false)'),
+      include_notes: z.boolean().optional().describe('Include task notes/description (default false)'),
+      max_results: z.number().int().positive().optional().describe('Maximum tasks to return (default 20, capped)'),
+      page_token: z.string().optional().describe('Pagination token from a previous response'),
     }),
   },
   
@@ -236,6 +240,5 @@ export const toolMetadata: Record<ToolName, {
 export function getToolSchema(toolName: ToolName) {
   return tools[toolName];
 }
-
 
 

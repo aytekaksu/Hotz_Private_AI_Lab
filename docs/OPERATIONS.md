@@ -34,6 +34,8 @@ Token Controls
 ```env
 GCAL_MAX_EVENTS=50
 GCAL_MAX_EVENT_DESCRIPTION=140
+GTASKS_MAX_TASKS=50
+GTASKS_TIMEOUT_MS=15000
 ```
 
 ## Build & Deploy
@@ -76,6 +78,7 @@ Common issues:
 - OpenRouter 401/429 — verify `OPENROUTER_API_KEY` or per‑user key; respect rate limits.
 - Google Calendar 400 (Bad Request) — ensure `timeMin/timeMax` are RFC3339; we normalize dates, but incorrect ranges can still fail.
 - Tool tokens too high — calendar outputs trimmed by default; don’t enable `include_description/location/attendees/link` unless required; paginate via `next_page_token`.
+- Google Tasks long/hanging calls — requests are time‑boxed via `GTASKS_TIMEOUT_MS` and outputs are shaped by `GTASKS_MAX_TASKS`, `include_completed`, `include_notes`, and `page_token`.
 - Timeouts from `/api/chat` — check proxy (`caddy`) timeouts and model latency; large tool outputs are the usual culprit (now mitigated).
 
 ## Backups

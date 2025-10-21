@@ -36,6 +36,16 @@ Key components:
 
 This prevents tool outputs from bloating the model context.
 
+### Tasks (Token‑safe)
+`apps/web/lib/tools/google-tasks.ts` implements:
+- Primary list by default (`@default`) to avoid extra lookups.
+- Output shaping defaults:
+  - Minimal fields: `id`, `title`, `status`, `due`.
+  - `max_results` (default 20, bounded by `GTASKS_MAX_TASKS`).
+  - Optional flags to include `notes` and `completed` tasks.
+  - Pagination via `page_token` and `next_page_token`.
+- Request timeouts via `GTASKS_TIMEOUT_MS` to prevent hanging tool calls.
+
 ### Time (Seamless)
 `get_current_datetime` returns rich data (ISO, date, time, timezone, etc.). The system prompt instructs the model to integrate this information naturally, without mentioning tool usage.
 
