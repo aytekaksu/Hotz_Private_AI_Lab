@@ -223,19 +223,19 @@ export default function AgentsIndexPage() {
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex items-center justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center">
             <button
               onClick={() => router.push('/')}
-              className="inline-flex items-center gap-2 rounded-full border border-transparent px-3 py-1.5 text-sm text-muted transition hover:border-border hover:text-foreground"
+              className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-base text-foreground/85 transition hover:bg-card/70 hover:text-foreground"
               aria-label="Back to home"
             >
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
                 <path d="M3 9.5 10 3l7 6.5M6 17v-5h8v5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               Back to home
             </button>
-            <h1 className="truncate text-2xl font-semibold">Agents</h1>
           </div>
+          <h1 className="mt-3 truncate text-2xl font-semibold">Agents</h1>
           <p className="mt-1 text-sm text-muted">Create and configure custom agents. Enable default tools and customize behavior.</p>
         </div>
       </div>
