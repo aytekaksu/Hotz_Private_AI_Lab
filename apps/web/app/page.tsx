@@ -967,15 +967,7 @@ export default function Home() {
               )}
             </div>
           </div>
-          <a
-            href="/settings"
-            className="flex items-center justify-between rounded-xl border border-border bg-surface/80 px-4 py-3 text-sm text-foreground transition hover:border-accent hover:text-accent"
-          >
-            Settings
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
-              <path d="M8.333 5h-2.5a1.667 1.667 0 0 0 0 3.333h2.5m3.334 0h2.5a1.667 1.667 0 1 1 0 3.334h-2.5M10 5v10" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </a>
+          {/* Settings moved to floating pill button */}
         </div>
       </div>
     </aside>
@@ -1100,6 +1092,17 @@ export default function Home() {
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
+      <a
+        href="/settings"
+        className="fixed right-4 top-4 z-50 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-4 py-2 text-sm text-foreground shadow transition hover:border-accent hover:text-accent"
+        aria-label="Open Settings"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
+          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" strokeWidth="1.6"/>
+          <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-1.4 3.5l-.1-.1a1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-3.4-1.4v-.2a1 1 0 0 0-.8-.8h-.2a2 2 0 0 1-1.4-3.4l.1-.1a1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 1.4-3.4h.2a1 1 0 0 0 .8-.8v-.2a2 2 0 0 1 3.4-1.4l.1.1a1 1 0 0 0 1.1.2h.1a2 2 0 0 1 2.9 2.9h-.1a1 1 0 0 0-.2 1.1l.1.1a2 2 0 0 1-1.4 3.4h-.2a1 1 0 0 0-.8.8v.2Z" strokeWidth="1.2"/>
+        </svg>
+        Settings
+      </a>
       {isMobile ? (
         <>
           {sidebarOpen && (
