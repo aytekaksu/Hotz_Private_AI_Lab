@@ -221,8 +221,17 @@ export default function AgentsIndexPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
-      <h1 className="text-2xl font-semibold">Agents</h1>
-      <p className="mt-1 text-sm text-muted">Create and configure custom agents. Enable default tools and customize behavior.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Agents</h1>
+          <p className="mt-1 text-sm text-muted">Create and configure custom agents. Enable default tools and customize behavior.</p>
+        </div>
+        <button
+          onClick={() => router.push('/')}
+          className="rounded-full border border-border px-3 py-1.5 text-sm text-muted transition hover:text-foreground"
+          aria-label="Go to homepage"
+        >Home</button>
+      </div>
 
       <div className="mt-6 grid gap-6 rounded-2xl border border-border bg-card/60 p-6 md:grid-cols-2">
         <div className="space-y-4">

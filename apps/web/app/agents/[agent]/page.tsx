@@ -202,10 +202,17 @@ export default function AgentDetailPage() {
           <h1 className="text-2xl font-semibold">{agent.name}</h1>
           <p className="mt-1 text-sm text-muted">Configure this agent and manage its chats.</p>
         </div>
-        <button
-          onClick={createNewChat}
-          className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
-        >New Chat</button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push('/')}
+            className="rounded-full border border-border px-3 py-1.5 text-sm text-muted transition hover:text-foreground"
+            aria-label="Go to homepage"
+          >Home</button>
+          <button
+            onClick={createNewChat}
+            className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+          >New Chat</button>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 rounded-2xl border border-border bg-card/60 p-6 md:grid-cols-2">

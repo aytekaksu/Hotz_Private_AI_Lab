@@ -898,16 +898,21 @@ export default function Home() {
       </nav>
       <div className="border-t border-border/70 px-5 py-5">
         <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-surface/60 px-4 py-3">
+          <div
+            className="rounded-xl border border-border bg-surface/60 px-4 py-3 cursor-pointer"
+            onClick={() => router.push('/agents')}
+            role="button"
+            aria-label="Open Agents"
+          >
             <div className="flex items-center justify-between text-sm font-semibold text-foreground">
               Agents
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setEditingAgent(null);
                   setAgentForm({ name: '', extraPrompt: '', overrideEnabled: false, overridePrompt: '' });
                   setAgentTools([]);
-                  // Open full Agents page instead of modal
                   router.push('/agents');
                 }}
                 className="rounded-full border border-border px-2 py-0.5 text-xs uppercase tracking-[0.3em] text-muted transition hover:border-accent hover:text-foreground"
@@ -915,17 +920,20 @@ export default function Home() {
                 New
               </button>
             </div>
+            <p className="mt-1 text-[11px] text-muted">Click to view/manage Agents</p>
             <div className="mt-3 space-y-2">
               {agents.length === 0 ? (
                 <p className="text-xs text-muted">No custom agents yet.</p>
               ) : (
                 agents.map((agent) => (
-                  <div key={agent.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 transition hover:border-border">
+                  <div key={agent.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 transition hover:border-border"
+                       onClick={(e) => { e.stopPropagation(); router.push('/agents'); }}>
                     <span className="truncate text-sm text-foreground">{agent.name}</span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.stopPropagation();
                           // Create conversation immediately and navigate
                           try {
                             const res = await fetch('/api/conversations', {
@@ -948,7 +956,7 @@ export default function Home() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => router.push(`/agents/${agent.slug}`)}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/agents/${agent.slug}`); }}
                         className="text-xs text-muted hover:text-foreground"
                       >
                         Manage
@@ -959,15 +967,6 @@ export default function Home() {
               )}
             </div>
           </div>
-          <a
-            href="/agents"
-            className="flex items-center justify-between rounded-xl border border-border bg-surface/80 px-4 py-3 text-sm text-foreground transition hover:border-accent hover:text-accent"
-          >
-            Open Agents
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
-              <path d="M8.333 5h-2.5a1.667 1.667 0 0 0 0 3.333h2.5m3.334 0h2.5a1.667 1.667 0 1 1 0 3.334h-2.5M10 5v10" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </a>
           <a
             href="/settings"
             className="flex items-center justify-between rounded-xl border border-border bg-surface/80 px-4 py-3 text-sm text-foreground transition hover:border-accent hover:text-accent"
