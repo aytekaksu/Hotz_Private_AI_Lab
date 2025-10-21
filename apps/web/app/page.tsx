@@ -349,7 +349,7 @@ export default function Home() {
 
         // Navigate to the newly created conversation route so refresh keeps context
         const agentSlug = currentAgentSlugRef.current;
-        const newPath = agentSlug ? `/${agentSlug}/${convId}` : `/chat/${convId}`;
+        const newPath = agentSlug ? `/agents/${agentSlug}/${convId}` : `/chat/${convId}`;
         if (typeof newPath === 'string' && newPath.length > 0) {
           router.replace(newPath);
         }
@@ -531,7 +531,7 @@ export default function Home() {
       const agentSlug = data?.conversation?.agent_slug || null;
       if (agentSlug) {
         currentAgentSlugRef.current = agentSlug;
-        router.replace(`/${agentSlug}/${conversationId}`);
+        router.replace(`/agents/${agentSlug}/${conversationId}`);
       } else {
         currentAgentSlugRef.current = null;
         router.replace(`/chat/${conversationId}`);
@@ -653,8 +653,9 @@ export default function Home() {
       if (id && id !== currentConversationIdRef.current) {
         void loadConversation(id);
       }
-    } else if (parts.length === 2) {
-      const [agentSlug, id] = parts;
+    } else if (parts.length === 3 && parts[0] === 'agents') {
+      const agentSlug = parts[1];
+      const id = parts[2];
       if (agentSlug && id && id !== currentConversationIdRef.current) {
         currentAgentSlugRef.current = agentSlug;
         void loadConversation(id);
@@ -864,7 +865,14 @@ export default function Home() {
                       }`}
                     >
                       <div className="min-w-0 pr-2">
-                        <p className="truncate text-sm font-medium">{title}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium">{title}</p>
+                          {conversation.agent_slug && (
+                            <span className="inline-flex items-center rounded-full border border-border px-2 py-[2px] text-[10px] text-muted">
+                              Agent: {conversation.agent_name || conversation.agent_slug}
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-1 text-xs text-muted">{formatRelativeDate(conversation.date)}</p>
                       </div>
                       <button
@@ -899,7 +907,8 @@ export default function Home() {
                   setEditingAgent(null);
                   setAgentForm({ name: '', extraPrompt: '', overrideEnabled: false, overridePrompt: '' });
                   setAgentTools([]);
-                  setIsAgentModalOpen(true);
+                  // Open full Agents page instead of modal
+                  router.push('/agents');
                 }}
                 className="rounded-full border border-border px-2 py-0.5 text-xs uppercase tracking-[0.3em] text-muted transition hover:border-accent hover:text-foreground"
               >
@@ -916,9 +925,22 @@ export default function Home() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedAgentForNextChat(agent);
-                          startNewChat();
+                        onClick={async () => {
+                          // Create conversation immediately and navigate
+                          try {
+                            const res = await fetch('/api/conversations', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ userId, agentId: agent.id }),
+                            });
+                            const data = await res.json();
+                            const convId = data?.conversation?.id;
+                            if (convId) {
+                              router.push(`/agents/${agent.slug}/${convId}`);
+                            }
+                          } catch (e) {
+                            console.error('Failed to create agent chat', e);
+                          }
                         }}
                         className="text-xs font-medium text-accent hover:underline"
                       >
@@ -926,24 +948,7 @@ export default function Home() {
                       </button>
                       <button
                         type="button"
-                        onClick={async () => {
-                          setEditingAgent(agent);
-                          setAgentForm({
-                            name: agent.name,
-                            extraPrompt: agent.extra_system_prompt || '',
-                            overrideEnabled: !!agent.override_system_prompt,
-                            overridePrompt: agent.override_system_prompt || '',
-                          });
-                          try {
-                            const res = await fetch(`/api/agents/${agent.id}/tools?userId=${userId}`);
-                            const data = await res.json();
-                            setAgentTools(Array.isArray(data.tools) ? data.tools : []);
-                          } catch (e) {
-                            console.error('Failed to load agent tools', e);
-                            setAgentTools([]);
-                          }
-                          setIsAgentModalOpen(true);
-                        }}
+                        onClick={() => router.push(`/agents/${agent.slug}`)}
                         className="text-xs text-muted hover:text-foreground"
                       >
                         Manage
@@ -954,6 +959,15 @@ export default function Home() {
               )}
             </div>
           </div>
+          <a
+            href="/agents"
+            className="flex items-center justify-between rounded-xl border border-border bg-surface/80 px-4 py-3 text-sm text-foreground transition hover:border-accent hover:text-accent"
+          >
+            Open Agents
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+              <path d="M8.333 5h-2.5a1.667 1.667 0 0 0 0 3.333h2.5m3.334 0h2.5a1.667 1.667 0 1 1 0 3.334h-2.5M10 5v10" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </a>
           <a
             href="/settings"
             className="flex items-center justify-between rounded-xl border border-border bg-surface/80 px-4 py-3 text-sm text-foreground transition hover:border-accent hover:text-accent"

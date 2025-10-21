@@ -10,20 +10,26 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const searchParams = req.nextUrl.searchParams;
     const userId = searchParams.get('userId');
     if (!userId) return Response.json({ error: 'User ID required' }, { status: 400 });
-    const defaults = getAgentTools(params.id);
-    const tools = defaults.map((t) => {
-      const meta = (toolMetadata as any)[t.tool_name];
+    const stored = getAgentTools(params.id);
+    const storedMap = new Map(stored.map((t) => [t.tool_name, t.enabled]));
+    const entries = Object.entries(toolMetadata as any);
+    const tools = entries.map(([toolName, meta]: any) => {
       const requiresAuth = !!meta?.requiresAuth;
       const authProvider = meta?.authProvider || null;
       const authConnected = authProvider ? !!getOAuthCredential(userId, authProvider) : true;
+      const category = meta?.category || 'Other';
+      // Default enabled logic: system date/time is enabled by default unless explicitly disabled
+      const defaultEnabled = toolName === 'get_current_datetime' ? true : false;
+      const enabled = storedMap.has(toolName) ? !!storedMap.get(toolName) : defaultEnabled;
       return {
-        toolName: t.tool_name,
-        enabled: t.enabled,
+        toolName,
+        enabled,
         available: requiresAuth ? authConnected : true,
         authProvider,
-        description: meta?.description || t.tool_name,
-        displayName: (t.tool_name || '').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+        description: meta?.description || toolName,
+        displayName: meta?.displayName || (toolName || '').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
         authConnected,
+        category,
       };
     });
     return Response.json({ tools });
@@ -47,4 +53,3 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return Response.json({ error: 'Failed to update agent tool' }, { status: 500 });
   }
 }
-

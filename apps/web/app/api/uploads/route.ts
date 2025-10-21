@@ -12,6 +12,27 @@ async function extractText(buffer: Buffer, mimetype: string): Promise<string | u
     if (mimetype.startsWith('text/')) {
       return buffer.toString('utf-8');
     }
+    if (mimetype === 'application/pdf') {
+      try {
+        const pdfParse = (await import('pdf-parse')).default as (data: Buffer) => Promise<{ text: string }>;
+        const res = await pdfParse(buffer);
+        return res.text || undefined;
+      } catch (e) {
+        console.error('PDF parse failed:', e);
+        return undefined;
+      }
+    }
+    if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      try {
+        const mammoth = await import('mammoth');
+        const res = await mammoth.extractRawText({ buffer });
+        const text = typeof res?.value === 'string' ? res.value : undefined;
+        return text;
+      } catch (e) {
+        console.error('DOCX parse failed:', e);
+        return undefined;
+      }
+    }
     // For other file types, return undefined (could add PDF/DOCX parsers later)
     return undefined;
   } catch (error) {
@@ -32,6 +53,8 @@ const ALLOWED_MIMETYPES = [
   'text/html',
   'text/markdown',
   'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ];
 
 export async function POST(req: NextRequest) {

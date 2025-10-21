@@ -29,7 +29,7 @@ try {
 
 // Enable pragmas for consistency
 try {
-  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
 } catch {}
 
 // Get current schema version
@@ -222,6 +222,19 @@ const migrations = [
 
     setVersion(3);
     console.log('✓ Migration 3 completed');
+  },
+  
+  // Migration 4: Add agent instructions attachment metadata
+  function migration4() {
+    console.log('Running migration 4: Agent instructions attachment columns');
+    try {
+      db.exec("ALTER TABLE agents ADD COLUMN instructions_attachment_id TEXT NULL");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE agents ADD COLUMN instructions_attachment_name TEXT NULL");
+    } catch {}
+    setVersion(4);
+    console.log('✓ Migration 4 completed');
   },
 ];
 

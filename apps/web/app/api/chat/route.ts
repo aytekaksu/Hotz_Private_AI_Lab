@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages, stepCountIs } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById } from '@/lib/db';
+import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -263,8 +263,19 @@ export async function POST(req: Request) {
       }
     }
     
-    // Always add system tools (not shown to user, always available)
-    aiTools['get_current_datetime'] = {
+    // Add system tool conditionally based on agent defaults
+    let allowDateTimeTool = true;
+    if (agentId) {
+      try {
+        const agentToolDefaults = getAgentTools(agentId);
+        const entry = agentToolDefaults.find((t) => t.tool_name === 'get_current_datetime');
+        if (entry && entry.enabled === false) {
+          allowDateTimeTool = false;
+        }
+      } catch {}
+    }
+    if (allowDateTimeTool) {
+      aiTools['get_current_datetime'] = {
       description: tools['get_current_datetime'].description,
       parameters: tools['get_current_datetime'].parameters,
       execute: async (args: any) => {
@@ -296,10 +307,11 @@ export async function POST(req: Request) {
         }
       },
     };
-    availableToolsList.push({
-      name: 'get_current_datetime',
-      description: tools['get_current_datetime'].description
-    });
+      availableToolsList.push({
+        name: 'get_current_datetime',
+        description: tools['get_current_datetime'].description
+      });
+    }
     
     // Get current date/time for context using user's timezone
     const now = new Date();

@@ -132,12 +132,20 @@ export async function POST(req: NextRequest) {
       `);
       setVersion(3);
     };
+    
+    const migration4 = () => {
+      try { db.exec("ALTER TABLE agents ADD COLUMN instructions_attachment_id TEXT NULL"); } catch {}
+      try { db.exec("ALTER TABLE agents ADD COLUMN instructions_attachment_name TEXT NULL"); } catch {}
+      setVersion(4);
+    };
 
+    try { db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;"); } catch {}
     const current = getCurrentVersion();
     const toRun = [] as Array<() => void>;
     if (current < 1) toRun.push(migration1);
     if (current < 2) toRun.push(migration2);
     if (current < 3) toRun.push(migration3);
+    if (current < 4) toRun.push(migration4);
 
     if (toRun.length === 0) {
       return Response.json({ success: true, message: 'Database is up to date', currentVersion: current });

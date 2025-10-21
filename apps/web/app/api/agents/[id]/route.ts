@@ -21,12 +21,14 @@ export async function GET(
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
-    const { name, slug, extraSystemPrompt, overrideSystemPrompt } = body || {};
+    const { name, slug, extraSystemPrompt, overrideSystemPrompt, instructionsAttachmentId, instructionsAttachmentName } = body || {};
     const updated = updateAgent(params.id, {
       name,
       slug,
       extra_system_prompt: extraSystemPrompt,
       override_system_prompt: overrideSystemPrompt,
+      instructions_attachment_id: instructionsAttachmentId ?? null,
+      instructions_attachment_name: instructionsAttachmentName ?? null,
     });
     if (!updated) return Response.json({ error: 'Agent not found' }, { status: 404 });
     return Response.json({ agent: updated });
@@ -45,4 +47,3 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return Response.json({ error: 'Failed to delete agent' }, { status: 500 });
   }
 }
-

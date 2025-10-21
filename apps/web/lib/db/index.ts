@@ -19,13 +19,13 @@ export function getDb(): DBLike {
         // @ts-ignore - bun:sqlite is provided by Bun at runtime
         const { Database: BunDatabase } = require('bun:sqlite');
         const instance = new BunDatabase(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
         db = instance;
       } else {
         // @ts-ignore - CJS require for Node
         const BetterSqlite3 = require('better-sqlite3');
         const instance = new BetterSqlite3(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
         db = instance;
       }
     } catch (e) {
@@ -33,7 +33,7 @@ export function getDb(): DBLike {
       // @ts-ignore - CJS require for Node
       const BetterSqlite3 = require('better-sqlite3');
       const instance = new BetterSqlite3(dbPath);
-      instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+      instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
       db = instance;
     }
   }
@@ -437,6 +437,8 @@ export interface Agent {
   slug: string;
   extra_system_prompt?: string | null;
   override_system_prompt?: string | null;
+  instructions_attachment_id?: string | null;
+  instructions_attachment_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -484,7 +486,7 @@ export function listAgents(userId: string): Agent[] {
 
 export function updateAgent(
   id: string,
-  fields: Partial<Pick<Agent, 'name' | 'slug' | 'extra_system_prompt' | 'override_system_prompt'>>,
+  fields: Partial<Pick<Agent, 'name' | 'slug' | 'extra_system_prompt' | 'override_system_prompt' | 'instructions_attachment_id' | 'instructions_attachment_name'>>,
 ): Agent | null {
   const db = getDb();
   const current = getAgentById(id);
@@ -493,12 +495,14 @@ export function updateAgent(
   const slug = fields.slug ?? current.slug;
   const extra = fields.extra_system_prompt ?? current.extra_system_prompt ?? null;
   const override = fields.override_system_prompt ?? current.override_system_prompt ?? null;
+  const attachId = fields.instructions_attachment_id ?? (current as any).instructions_attachment_id ?? null;
+  const attachName = fields.instructions_attachment_name ?? (current as any).instructions_attachment_name ?? null;
   const stmt = db.prepare(`
     UPDATE agents
-    SET name = ?, slug = ?, extra_system_prompt = ?, override_system_prompt = ?, updated_at = datetime('now')
+    SET name = ?, slug = ?, extra_system_prompt = ?, override_system_prompt = ?, instructions_attachment_id = ?, instructions_attachment_name = ?, updated_at = datetime('now')
     WHERE id = ?
   `);
-  stmt.run(name, slug, extra, override, id);
+  stmt.run(name, slug, extra, override, attachId, attachName, id);
   return getAgentById(id);
 }
 
