@@ -75,6 +75,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentConversationIdRef = useRef<string | null>(null);
   const currentAgentSlugRef = useRef<string | null>(null);
+  const rootForwardedRef = useRef<boolean>(false);
   const pendingAttachmentsRef = useRef<any[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -686,12 +687,16 @@ export default function Home() {
     const parts = (pathname || '').split('/').filter(Boolean);
     if (!userId) return;
     if (parts.length !== 0) return; // only act on root
+    if (rootForwardedRef.current) return; // run once
+    rootForwardedRef.current = true;
 
-    const go = async () => {
+    (async () => {
       try {
-        // Ensure conversations list is current
-        await loadConversations();
-        const latest = conversations[0];
+        // Fetch fresh conversations list directly to avoid state race
+        const listRes = await fetch(`/api/conversations?userId=${userId}`);
+        const listData = await listRes.json();
+        const list = Array.isArray(listData?.conversations) ? listData.conversations : [];
+        const latest = list[0];
         if (latest && latest.id) {
           try {
             const r = await fetch(`/api/conversations/${latest.id}`);
@@ -724,10 +729,8 @@ export default function Home() {
       } catch (e) {
         console.error('Failed to forward to fresh chat', e);
       }
-    };
-
-    void go();
-  }, [pathname, userId, loadConversations, conversations, router]);
+    })();
+  }, [pathname, userId, router]);
 
   const deleteConversation = async (conversationId: string) => {
     if (!confirm('Delete this conversation?')) return;
