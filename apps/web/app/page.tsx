@@ -347,12 +347,7 @@ export default function Home() {
           console.error('Post-finish refresh failed:', error);
         }
 
-        // Navigate to the newly created conversation route so refresh keeps context
-        const agentSlug = currentAgentSlugRef.current;
-        const newPath = agentSlug ? `/agents/${agentSlug}/${convId}` : `/chat/${convId}`;
-        if (typeof newPath === 'string' && newPath.length > 0) {
-          router.replace(newPath);
-        }
+        // Do not navigate here; URL is handled at creation/click time to avoid interrupting streaming
       }
     },
     onError: (hookError) => {
@@ -514,6 +509,8 @@ export default function Home() {
 
   const loadConversation = useCallback(async (conversationId: string) => {
     try {
+      // Update URL immediately for snappy navigation; adjust later if agent context loads
+      router.replace(`/chat/${conversationId}`);
       const response = await fetch(`/api/conversations/${conversationId}`);
       const data = await response.json();
       const history = Array.isArray(data.messages)
@@ -634,15 +631,36 @@ export default function Home() {
   };
 
   const startNewChat = () => {
-    setCurrentConversationId(null);
-    setMessages([]);
-    setAttachments([]);
-    setInput('');
-    setAvailableTools([]);
-    currentConversationIdRef.current = null;
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
+    // Create a new conversation immediately and navigate to it
+    (async () => {
+      try {
+        const res = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, agentId: selectedAgentForNextChat?.id ?? null }),
+        });
+        const data = await res.json();
+        const convId: string | undefined = data?.conversation?.id;
+        const agentSlug: string | undefined = data?.conversation?.agent_slug;
+
+        setMessages([]);
+        setAttachments([]);
+        setInput('');
+        setAvailableTools([]);
+
+        if (convId) {
+          setCurrentConversationId(convId);
+          currentConversationIdRef.current = convId;
+          const path = agentSlug ? `/agents/${agentSlug}/${convId}` : `/chat/${convId}`;
+          router.replace(path);
+          if (isMobile) setSidebarOpen(false);
+          void loadConversations();
+          void loadTools(convId);
+        }
+      } catch (e) {
+        console.error('Failed to create new conversation', e);
+      }
+    })();
   };
 
   useEffect(() => {
@@ -662,6 +680,54 @@ export default function Home() {
       }
     }
   }, [loadConversation, pathname, userId]);
+
+  // On landing at '/', forward to a fresh chat. If the latest chat is empty, reuse it; otherwise create a new one.
+  useEffect(() => {
+    const parts = (pathname || '').split('/').filter(Boolean);
+    if (!userId) return;
+    if (parts.length !== 0) return; // only act on root
+
+    const go = async () => {
+      try {
+        // Ensure conversations list is current
+        await loadConversations();
+        const latest = conversations[0];
+        if (latest && latest.id) {
+          try {
+            const r = await fetch(`/api/conversations/${latest.id}`);
+            const d = await r.json();
+            const msgs = Array.isArray(d?.messages) ? d.messages : [];
+            if (msgs.length === 0) {
+              setCurrentConversationId(latest.id);
+              currentConversationIdRef.current = latest.id;
+              const agentSlug = d?.conversation?.agent_slug || null;
+              const url = agentSlug ? `/agents/${agentSlug}/${latest.id}` : `/chat/${latest.id}`;
+              router.replace(url);
+              return;
+            }
+          } catch {}
+        }
+        // Create and forward to a fresh chat
+        const res = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, agentId: null }),
+        });
+        const data = await res.json();
+        const cid: string | undefined = data?.conversation?.id;
+        const slug: string | undefined = data?.conversation?.agent_slug;
+        if (cid) {
+          setCurrentConversationId(cid);
+          currentConversationIdRef.current = cid;
+          router.replace(slug ? `/agents/${slug}/${cid}` : `/chat/${cid}`);
+        }
+      } catch (e) {
+        console.error('Failed to forward to fresh chat', e);
+      }
+    };
+
+    void go();
+  }, [pathname, userId, loadConversations, conversations, router]);
 
   const deleteConversation = async (conversationId: string) => {
     if (!confirm('Delete this conversation?')) return;
