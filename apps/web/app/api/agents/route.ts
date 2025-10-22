@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { createAgent, initializeAgentTools, listAgents, slugifyName } from '@/lib/db';
+import { createAgent, initializeAgentTools, listAgents, slugifyName, getAgentBySlug } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { userId, name } = body || {};
     if (!userId || !name) return Response.json({ error: 'userId and name required' }, { status: 400 });
+    const slug = slugifyName(String(name));
+    const exists = getAgentBySlug(userId, slug);
+    if (exists) {
+      return Response.json({ error: 'An agent with this name already exists.' }, { status: 400 });
+    }
     const agent = createAgent(userId, name);
     initializeAgentTools(agent.id);
     return Response.json({ agent });
@@ -29,4 +34,3 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Failed to create agent' }, { status: 500 });
   }
 }
-

@@ -1012,7 +1012,7 @@ export default function Home() {
               </button>
             </div>
             <p className="mt-1 text-[11px] text-muted">Click to view/manage Agents</p>
-            <div className="mt-3 space-y-2 max-h-32 overflow-y-auto pr-1">
+            <div className="mt-3 space-y-2 max-h-24 overflow-y-auto pr-1">
               {sortedAgentsByUsage.length === 0 ? (
                 <p className="text-xs text-muted">No custom agents yet.</p>
               ) : (
