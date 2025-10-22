@@ -214,6 +214,21 @@ export default function Home() {
     }
   }, [userId]);
 
+  // Sort agents by latest conversation usage (most recent first)
+  const sortedAgentsByUsage = useMemo(() => {
+    if (!Array.isArray(agents) || agents.length === 0) return [] as any[];
+    const lastUsed: Record<string, number> = {};
+    for (const c of conversations) {
+      const aid = (c as any).agent_id;
+      if (!aid) continue;
+      const t = new Date((c as any).updated_at || (c as any).created_at || Date.now()).getTime();
+      if (!lastUsed[aid] || t > lastUsed[aid]) lastUsed[aid] = t;
+    }
+    const copy = [...agents];
+    copy.sort((a, b) => (lastUsed[b.id] || 0) - (lastUsed[a.id] || 0));
+    return copy;
+  }, [agents, conversations]);
+
   const loadTools = useCallback(
     async (conversationId: string | null) => {
       if (!conversationId || !userId) return;
@@ -997,11 +1012,11 @@ export default function Home() {
               </button>
             </div>
             <p className="mt-1 text-[11px] text-muted">Click to view/manage Agents</p>
-            <div className="mt-3 space-y-2">
-              {agents.length === 0 ? (
+            <div className="mt-3 space-y-2 max-h-32 overflow-y-auto pr-1">
+              {sortedAgentsByUsage.length === 0 ? (
                 <p className="text-xs text-muted">No custom agents yet.</p>
               ) : (
-                agents.map((agent) => (
+                sortedAgentsByUsage.map((agent: any) => (
                   <div key={agent.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 transition hover:border-border"
                        onClick={(e) => { e.stopPropagation(); router.push('/agents'); }}>
                     <span className="truncate text-sm text-foreground">{agent.name}</span>
