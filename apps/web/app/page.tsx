@@ -12,7 +12,7 @@ import {
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { usePathname, useRouter } from 'next/navigation';
-import { ThemeToggle } from '@/components/theme-toggle';
+// Theme toggle removed — app is permanently dark
 import type { ToolDefinition } from '@/components/tool-dialog';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ThemeToggle } from '@/components/theme-toggle';
+// Theme toggle removed — app is permanently dark
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -176,7 +176,6 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-5xl px-6 py-12 md:px-10">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-[0.4em] text-muted">Control center</p>
             <div className="mt-2 flex items-center">
               <button
                 onClick={() => router.push('/')}
@@ -192,9 +191,7 @@ export default function SettingsPage() {
             <h1 className="mt-3 truncate text-2xl font-semibold">Settings</h1>
             <p className="mt-2 text-sm text-muted">Manage API keys, connected services, and workspace preferences.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-          </div>
+          {/* Theme toggle removed */}
         </header>
 
         <div className="mt-10 grid gap-6 lg:grid-cols-2">
@@ -332,19 +329,7 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        <section className="mt-6 rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Workspace tips</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-surface/80 p-4 text-sm text-muted">
-              <strong className="block text-foreground">Keep prompts visible</strong>
-              Turn on “System” theme to mirror your OS in both browser and desktop. Prompts remain in view while composing.
-            </div>
-            <div className="rounded-2xl border border-border bg-surface/80 p-4 text-sm text-muted">
-              <strong className="block text-foreground">Manage conversations</strong>
-              Use the sidebar to pin important threads and rename them for quick recall.
-            </div>
-          </div>
-        </section>
+        {/* Workspace tips removed */}
       </div>
     </div>
   );

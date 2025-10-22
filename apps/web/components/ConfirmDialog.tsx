@@ -62,25 +62,25 @@ export default function ConfirmDialog({
       {/* Dialog */}
       <div
         ref={dialogRef}
-        className="relative z-10 w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800"
+        className="relative z-10 w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
       >
         <h3
           id="dialog-title"
-          className="mb-4 text-xl font-semibold text-gray-900 dark:text-white"
+          className="mb-4 text-xl font-semibold text-foreground"
         >
           {title}
         </h3>
 
-        <p className="mb-6 text-gray-600 dark:text-gray-400">{message}</p>
+        <p className="mb-6 text-muted">{message}</p>
 
         <div className="flex justify-end gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-muted transition-colors hover:border-accent hover:text-foreground"
           >
             {cancelLabel}
           </button>

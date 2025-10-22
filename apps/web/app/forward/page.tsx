@@ -12,9 +12,18 @@ export default async function Forward() {
     if (!user) {
       try {
         user = createUser(email);
-      } catch {
-        // As a last resort, send to settings
-        return redirect('/settings');
+      } catch (e) {
+        console.error('[forward] createUser failed:', e);
+        // Handle potential race: user may have been created concurrently
+        try {
+          user = getUserByEmail(email);
+        } catch (err) {
+          console.error('[forward] getUserByEmail after create failure failed:', err);
+        }
+        if (!user) {
+          // As a last resort, send to settings
+          return redirect('/settings');
+        }
       }
     }
 
@@ -29,7 +38,9 @@ export default async function Forward() {
         if ((!msgs || msgs.length === 0) && !isAgentChat) {
           targetId = latest.id;
         }
-      } catch {}
+      } catch (e) {
+        console.error('[forward] getMessagesByConversationId failed:', e);
+      }
     }
 
     if (!targetId) {
@@ -37,6 +48,7 @@ export default async function Forward() {
         const conv = createConversationWithAgent(user.id, 'New Conversation', null);
         targetId = conv.id;
       } catch (e) {
+        console.error('[forward] createConversationWithAgent failed:', e);
         // If creation fails (e.g., disk full), fall back to latest existing conversation if any
         if (Array.isArray(list) && list.length > 0) {
           const latest = list[0];
@@ -48,7 +60,12 @@ export default async function Forward() {
     }
 
     return redirect(`/chat/${targetId}`);
-  } catch (e) {
+  } catch (e: any) {
+    // Allow Next.js redirect exceptions to bubble (they carry a NEXT_REDIRECT digest)
+    if (e && typeof e === 'object' && 'digest' in e && typeof (e as any).digest === 'string' && (e as any).digest.startsWith('NEXT_REDIRECT')) {
+      throw e;
+    }
+    console.error('[forward] unhandled error:', e);
     // Last-resort fallback to settings page
     return redirect('/settings');
   }
