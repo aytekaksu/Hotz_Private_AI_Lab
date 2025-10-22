@@ -6,12 +6,16 @@ export const dynamic = 'force-dynamic';
 
 export default async function Forward() {
   try {
-    // Try to use the default local user without creating one (avoid writes when disk is full)
+    // Resolve or create the default local user so Back to home always leads to a chat
     const email = 'user@assistant.local';
-    const user = getUserByEmail(email);
+    let user = getUserByEmail(email);
     if (!user) {
-      // Defer user creation to client-side flows instead of failing the forward
-      return redirect('/settings');
+      try {
+        user = createUser(email);
+      } catch {
+        // As a last resort, send to settings
+        return redirect('/settings');
+      }
     }
 
     // Find latest conversation; reuse if empty non-agent, else create new
