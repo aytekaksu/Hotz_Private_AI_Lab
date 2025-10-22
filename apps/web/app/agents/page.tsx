@@ -217,6 +217,25 @@ export default function AgentsIndexPage() {
     }
   };
 
+  const deleteAgent = async (agent: Agent) => {
+    const ok = confirm(
+      `Delete agent "${agent.name}"? Its default tools will be removed and any chats will become normal chats. This cannot be undone.`,
+    );
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const msg = await res.json().catch(() => ({}));
+        alert(msg.error || 'Failed to delete agent');
+        return;
+      }
+      await loadAgents();
+    } catch (e) {
+      console.error('Failed to delete agent', e);
+      alert('Failed to delete agent');
+    }
+  };
+
   const canToggleTools = !!editingAgent;
 
   return (
@@ -447,6 +466,11 @@ export default function AgentsIndexPage() {
                     onClick={() => createAgentChat(a)}
                   >Chat</button>
                   <a className="text-xs text-muted hover:text-foreground" href={`/agents/${a.slug}`}>Manage</a>
+                  <button
+                    className="text-xs text-red-500 hover:underline"
+                    onClick={() => deleteAgent(a)}
+                    aria-label={`Delete ${a.name}`}
+                  >Delete</button>
                 </div>
               </div>
             ))

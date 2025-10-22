@@ -182,6 +182,26 @@ export default function AgentDetailPage() {
     }
   };
 
+  const deleteThisAgent = async () => {
+    if (!agent) return;
+    const ok = confirm(
+      `Delete agent "${agent.name}"? Its default tools will be removed and any chats will become normal chats. This cannot be undone.`,
+    );
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const msg = await res.json().catch(() => ({}));
+        alert(msg.error || 'Failed to delete agent');
+        return;
+      }
+      router.replace('/agents');
+    } catch (e) {
+      console.error('Failed to delete agent', e);
+      alert('Failed to delete agent');
+    }
+  };
+
   const agentConversations = useMemo(() => {
     if (!agent) return [] as any[];
     return conversations.filter((c) => c.agent_id === agent.id);
@@ -219,6 +239,10 @@ export default function AgentDetailPage() {
             onClick={createNewChat}
             className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
           >New Chat</button>
+          <button
+            onClick={deleteThisAgent}
+            className="inline-flex items-center gap-2 rounded-full border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition hover:bg-red-50"
+          >Delete Agent</button>
         </div>
       </div>
 
