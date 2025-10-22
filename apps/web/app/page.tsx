@@ -85,10 +85,15 @@ export default function Home() {
 
   const pathname = usePathname();
   const router = useRouter();
+  const pathnameRef = useRef<string>('');
 
   useEffect(() => {
     currentConversationIdRef.current = currentConversationId;
   }, [currentConversationId]);
+
+  useEffect(() => {
+    pathnameRef.current = pathname || '';
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -510,8 +515,6 @@ export default function Home() {
 
   const loadConversation = useCallback(async (conversationId: string) => {
     try {
-      // Update URL immediately for snappy navigation; adjust later if agent context loads
-      router.replace(`/chat/${conversationId}`);
       const response = await fetch(`/api/conversations/${conversationId}`);
       const data = await response.json();
       const history = Array.isArray(data.messages)
@@ -527,12 +530,16 @@ export default function Home() {
         setSidebarOpen(false);
       }
       const agentSlug = data?.conversation?.agent_slug || null;
+      const desired = agentSlug
+        ? `/agents/${agentSlug}/${conversationId}`
+        : `/chat/${conversationId}`;
       if (agentSlug) {
         currentAgentSlugRef.current = agentSlug;
-        router.replace(`/agents/${agentSlug}/${conversationId}`);
       } else {
         currentAgentSlugRef.current = null;
-        router.replace(`/chat/${conversationId}`);
+      }
+      if (pathnameRef.current !== desired) {
+        router.replace(desired);
       }
     } catch (error) {
       console.error('Failed to load conversation:', error);
