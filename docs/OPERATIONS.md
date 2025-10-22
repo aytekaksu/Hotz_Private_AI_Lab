@@ -74,6 +74,12 @@ View logs:
 docker compose logs -f web
 ```
 
+Bounded tail (avoid hanging):
+```bash
+timeout 20s docker compose logs -f web \
+  | grep -E "Tool called:|Tool result:|Error|/api/chat|/api/health"
+```
+
 Common issues:
 - OpenRouter 401/429 — verify `OPENROUTER_API_KEY` or per‑user key; respect rate limits.
 - Google Calendar 400 (Bad Request) — ensure `timeMin/timeMax` are RFC3339; we normalize dates, but incorrect ranges can still fail.

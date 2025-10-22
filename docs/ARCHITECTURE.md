@@ -16,7 +16,7 @@ Key components:
 1. Client sends UI messages to `/api/chat`.
 2. Server normalizes attachments (files/images become file parts), injects a system message with current context.
 3. Tools are prepared from conversation-enabled set (+ `get_current_datetime` always available).
-4. `streamText` is called with `openrouter.chat('anthropic/claude-sonnet-4.5')`, messages and tools.
+4. `streamText` is called with `openrouter.chat('anthropic/claude-haiku-4.5')`, messages and tools.
 5. The model may call tools (multiple steps). The SDK executes tools with `execute` handlers.
 6. Once finished, the assistant text is saved and streamed to the client.
 
@@ -45,6 +45,11 @@ This prevents tool outputs from bloating the model context.
   - Optional flags to include `notes` and `completed` tasks.
   - Pagination via `page_token` and `next_page_token`.
 - Request timeouts via `GTASKS_TIMEOUT_MS` to prevent hanging tool calls.
+
+### Notes for Agents
+- Tools are enabled per conversation and require OAuth when applicable (Google/Notion). The UI exposes a Tool dialog to toggle them.
+- Keep tool outputs small: prefer pagination (`next_page_token`) to large blobs.
+- The server filters and trims responses; do not assume full objects are returned.
 
 ### Time (Seamless)
 `get_current_datetime` returns rich data (ISO, date, time, timezone, etc.). The system prompt instructs the model to integrate this information naturally, without mentioning tool usage.

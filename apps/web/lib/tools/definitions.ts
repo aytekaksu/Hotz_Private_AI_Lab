@@ -240,5 +240,3 @@ export const toolMetadata: Record<ToolName, {
 export function getToolSchema(toolName: ToolName) {
   return tools[toolName];
 }
-
-

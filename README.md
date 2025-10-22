@@ -6,7 +6,6 @@ An extensible personal AI assistant built with Next.js 14, Vercel AI SDK v5, and
 Live: https://assistant.aytekaksu.com
 
 Features
--
 - Streaming chat UI (Next.js App Router) with a Stop button
 - Multi‑step tool calling via AI SDK v5 (OpenRouter provider)
 - Tool integrations: Google Calendar, Google Tasks, Notion
@@ -17,48 +16,46 @@ Features
 - Docker + Caddy deployment
 
 Quick Start (local)
--
 1) Requirements
-- Bun 1.0+, Docker, docker compose
+- Node 20+, npm 10+
 
-2) Install and build
+2) Install (web app)
 ```bash
-bun install
-bun run build
+cd apps/web
+npm ci
 ```
 
 3) Environment
-Create `.env` at repo root (see “Configuration” below). Minimum for local:
+Create `apps/web/.env.local` (see “Configuration” below). Minimum for local:
 ```env
 NODE_ENV=production
-DATABASE_URL=file:///data/app.db
+DATABASE_URL=file:./data/app.db
 APP_ENCRYPTION_KEY=<32+ byte hex>
 NEXTAUTH_SECRET=<random hex>
 NEXTAUTH_URL=http://localhost:3000
 OPENROUTER_API_KEY=<your-openrouter-key>
 ```
 
-4) Run via Docker
+4) Run the dev server
+```bash
+cd apps/web
+npm run dev
+```
+Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google/Notion when needed.
+
+Production with Docker
 ```bash
 docker compose build web
 docker compose up -d
 ```
-Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google/Notion when needed.
 
-Build Optimizations
+Notes
 - The Docker build caches `npm ci` output, so repeat `docker compose build web` runs are near instant once warmed. Clear with `docker builder prune` if you need a fresh install.
-- The runtime container still uses Node 20; Bun is only leveraged for the Next.js build step to keep compatibility while speeding builds.
-
-Documentation
--
-- Architecture & Tool Calling: docs/ARCHITECTURE.md
-- Operations & Deployment: docs/OPERATIONS.md
-- Changelog: CHANGELOG.md
+- You do not need Bun locally. The Dockerfile uses Bun internally for a faster Next.js build step, but the app runs on Node 20 in development and production.
 
 Deploy
--
 - One‑command deploy to production (Docker + Caddy):
-  - Requirements: Docker, docker compose, valid `.env` with production values (see docs/OPERATIONS.md)
+  - Requirements: Docker, docker compose, valid `.env` at repo root (see docs/OPERATIONS.md)
   - Command: `npm run deploy`
   - What it does:
     - Builds the `web` image
@@ -66,13 +63,12 @@ Deploy
     - Runs database migrations idempotently
     - Prints service status and hits `/api/health`
 
-
 Configuration
--
 Core
 ```env
 APP_ENCRYPTION_KEY=...        # AES-256-GCM key for secrets at rest
-DATABASE_URL=file:///data/app.db
+DATABASE_URL=file:///data/app.db           # Docker/production (mounted volume)
+# DATABASE_URL=file:./data/app.db         # Local dev (inside apps/web)
 NEXTAUTH_URL=https://your.domain
 NEXTAUTH_SECRET=...
 OPENROUTER_API_KEY=...
@@ -92,19 +88,35 @@ GCAL_MAX_EVENTS=50                  # hard upper bound
 GCAL_MAX_EVENT_DESCRIPTION=140      # default truncation
 ```
 
+Tasks output shaping
+```env
+GTASKS_MAX_TASKS=50                 # hard upper bound
+GTASKS_TIMEOUT_MS=15000             # request timeouts in ms
+```
+
 Tech Stack
--
 - Next.js 14 (App Router), React 18, Tailwind
 - AI SDK v5 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai`) via OpenRouter
-- SQLite (better-sqlite3) with Bun runtime support in development
+- SQLite via better-sqlite3 (Node) with optional `bun:sqlite` fallback when running under Bun
 - Google APIs (`googleapis`), Notion SDK (`@notionhq/client`)
 - Docker + Caddy (TLS, reverse proxy)
 
-Notes on Bun
-- Dev and builds use Bun for speed: `bun install`, `bun run dev`, `bun run build`.
-- Docker image builds with Bun but runs on Node 20 for maximum Next.js compatibility.
-- Database access prefers `bun:sqlite` when running under Bun; Node uses `better-sqlite3`.
+Repository Map (for agents)
+- `apps/web/app/api/chat/route.ts` — streaming chat route, builds tool set, saves messages
+- `apps/web/lib/tools/definitions.ts` — tool schemas + UI metadata
+- `apps/web/lib/tools/executor.ts` — dispatches tool calls to implementations
+- `apps/web/lib/tools/google-calendar.ts` — Calendar tools (token‑safe output shaping)
+- `apps/web/lib/tools/google-tasks.ts` — Tasks tools (timeouts, shaping, pagination)
+- `apps/web/lib/tools/notion.ts` — Notion tools
+- `apps/web/lib/db/*` — SQLite wrapper + models, OAuth credential storage
+- `apps/web/app/settings/page.tsx` — settings + OAuth connect flows
+- `apps/web/components/tool-dialog.tsx` — per‑conversation tool toggles
+
+How tool calling works (short)
+- The chat server selects enabled tools per conversation and exposes their JSON schemas.
+- The model calls tools with arguments; server executes and returns trimmed outputs.
+- On finish, the assistant response and tool call events are persisted.
 
 License
--
 Proprietary. See repository owner for terms.
+
