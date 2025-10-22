@@ -18,7 +18,9 @@ export default async function Forward() {
   if (Array.isArray(list) && list.length > 0) {
     const latest = list[0];
     const msgs = getMessagesByConversationId(latest.id);
-    if (!msgs || msgs.length === 0) {
+    // Reuse only if empty AND not an agent chat
+    const isAgentChat = !!(latest as any).agent_id;
+    if ((!msgs || msgs.length === 0) && !isAgentChat) {
       targetId = latest.id;
     }
   }
@@ -30,4 +32,3 @@ export default async function Forward() {
 
   redirect(`/chat/${targetId}`);
 }
-
