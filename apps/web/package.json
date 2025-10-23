@@ -10,6 +10,7 @@
     "db:migrate": "tsx lib/db/migrate.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.37",
     "@ai-sdk/openai": "^2.0.52",
     "@ai-sdk/react": "^2.0.70",
     "@headlessui/react": "^2.2.9",

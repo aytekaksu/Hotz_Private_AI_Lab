@@ -129,7 +129,9 @@ export const tools = {
   // System Tools (hidden from user, always available)
   get_current_datetime: {
     description: 'Get the current date and time in the user\'s timezone. Use this whenever you need to know what time it is now, or to calculate relative dates like "tomorrow", "next week", etc.',
-    parameters: z.object({}),
+    parameters: z.object({
+      timezone: z.string().optional().describe('Optional IANA timezone override (e.g., America/Los_Angeles)'),
+    }),
   },
 };
 

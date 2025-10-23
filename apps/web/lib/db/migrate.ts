@@ -236,6 +236,17 @@ const migrations = [
     setVersion(4);
     console.log('✓ Migration 4 completed');
   },
+
+  // Migration 5: User Anthropic + model defaults + provider
+  function migration5() {
+    console.log('Running migration 5: User Anthropic/provider columns');
+    try { db.exec("ALTER TABLE users ADD COLUMN anthropic_api_key TEXT NULL"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN active_ai_provider TEXT NULL"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN default_model TEXT NULL"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN default_routing_variant TEXT NULL"); } catch {}
+    setVersion(5);
+    console.log('✓ Migration 5 completed');
+  },
 ];
 
 // Run migrations

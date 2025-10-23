@@ -1,6 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText, convertToModelMessages, stepCountIs } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools } from '@/lib/db';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
+import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -85,13 +86,18 @@ export async function POST(req: Request) {
       return new Response('User not found', { status: 404 });
     }
     
-    // Use user's API key or fallback to environment variable
-    let apiKey = getUserOpenRouterKey(userId);
-    if (!apiKey) {
-      // Fallback to environment variable for development/testing
-      apiKey = process.env.OPENROUTER_API_KEY || null;
-      
-      if (!apiKey) {
+    const activeProvider = getActiveAIProvider(userId);
+    let openrouterApiKey: string | null = null;
+    let anthropicApiKey: string | null = null;
+
+    if (activeProvider === 'anthropic') {
+      anthropicApiKey = getUserAnthropicKey(userId) || process.env.ANTHROPIC_API_KEY || null;
+      if (!anthropicApiKey) {
+        return new Response('Anthropic API key not configured. Please add it in Settings.', { status: 400 });
+      }
+    } else {
+      openrouterApiKey = getUserOpenRouterKey(userId) || process.env.OPENROUTER_API_KEY || null;
+      if (!openrouterApiKey) {
         return new Response('OpenRouter API key not configured. Please add it in Settings.', { status: 400 });
       }
     }
@@ -147,7 +153,7 @@ export async function POST(req: Request) {
       const imageAtts = atts.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
       
       if (imageAtts.length > 0) {
-        const parts: any[] = [{ type: 'text', text: content }];
+        const parts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
         for (const img of imageAtts) {
           try {
             const buf = fs.readFileSync(img.path);
@@ -165,7 +171,7 @@ export async function POST(req: Request) {
         normalizedMessages[normalizedMessages.length - 1].parts = parts;
       } else {
         // Fallback: text-only
-        normalizedMessages[normalizedMessages.length - 1].parts = [{ type: 'text', text: content }];
+        normalizedMessages[normalizedMessages.length - 1].parts = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
       }
       
       const saved = createMessage(currentConversationId, 'user', content);
@@ -180,11 +186,22 @@ export async function POST(req: Request) {
       }
     }
     
-    // Initialize OpenRouter client with API key
-    const openrouter = createOpenAI({
-      apiKey: apiKey,
-      baseURL: 'https://openrouter.ai/api/v1',
-    });
+    const openrouter = openrouterApiKey
+      ? createOpenAI({
+          apiKey: openrouterApiKey,
+          baseURL: 'https://openrouter.ai/api/v1',
+          headers: {
+            'HTTP-Referer': process.env.APP_PUBLIC_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000',
+            'X-Title': process.env.APP_NAME || 'AI Assistant',
+          },
+        })
+      : null;
+
+    const anthropic = anthropicApiKey
+      ? createAnthropic({
+          apiKey: anthropicApiKey,
+        })
+      : null;
     
     // In-memory tool events captured during this response (for history)
     const toolEvents: Array<{
@@ -211,8 +228,7 @@ export async function POST(req: Request) {
     for (const toolName of enabledToolNames) {
       const toolDef = tools[toolName as ToolName];
       const metadata = toolMetadata[toolName as ToolName];
-      
-      // Check if tool requires auth and if user has it
+
       let canUse = true;
       if (metadata.requiresAuth) {
         const authConnected = !!getOAuthCredential(userId, metadata.authProvider!);
@@ -220,12 +236,11 @@ export async function POST(req: Request) {
           canUse = false;
         }
       }
-      
-      // Only add tool if user can use it
+
       if (canUse) {
-        aiTools[toolName] = {
+        aiTools[toolName] = defineTool({
           description: toolDef.description,
-          parameters: toolDef.parameters,
+          inputSchema: zodSchema(toolDef.parameters as any),
           execute: async (args: any) => {
             console.log(`Tool called: ${toolName}`, args);
             const toolCallId = randomUUID();
@@ -254,8 +269,8 @@ export async function POST(req: Request) {
               throw e;
             }
           },
-        };
-        
+        });
+
         availableToolsList.push({
           name: toolName,
           description: toolDef.description
@@ -275,9 +290,9 @@ export async function POST(req: Request) {
       } catch {}
     }
     if (allowDateTimeTool) {
-      aiTools['get_current_datetime'] = {
+      aiTools['get_current_datetime'] = defineTool({
       description: tools['get_current_datetime'].description,
-      parameters: tools['get_current_datetime'].parameters,
+      inputSchema: zodSchema(tools['get_current_datetime'].parameters as any),
       execute: async (args: any) => {
         console.log('Tool called: get_current_datetime', args);
         const toolCallId = randomUUID();
@@ -306,7 +321,7 @@ export async function POST(req: Request) {
           throw e;
         }
       },
-    };
+    });
       availableToolsList.push({
         name: 'get_current_datetime',
         description: tools['get_current_datetime'].description
@@ -384,11 +399,12 @@ You also have access to the get_current_datetime tool if you need to get the cur
       }
       systemPrompt += '\nUse these tools when appropriate to help the user.';
     }
-    
-    systemPrompt += `\n\nGuidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.`;
+
+    const systemGuidelines = `Guidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.`;
 
     // Merge agent prompts if agent is present
     let agentSlug: string | undefined;
+    let includeGuidelines = true;
     if (agentId) {
       const agent = getAgentById(agentId);
       if (agent) {
@@ -397,6 +413,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
         const extra = agent.extra_system_prompt?.trim();
         if (base && base.length > 0) {
           systemPrompt = base;
+          includeGuidelines = false;
         }
         if (extra && extra.length > 0) {
           systemPrompt += `\n\n[Additional Context]\n${extra}`;
@@ -404,14 +421,27 @@ You also have access to the get_current_datetime tool if you need to get the cur
       }
     }
     
-    console.log('System prompt:', systemPrompt);
+    const allowedModels = ['anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5'];
+    let baseModelCandidate = user.default_model || process.env.OPENROUTER_MODEL || 'anthropic/claude-haiku-4.5';
+    const baseModelRootCandidate = baseModelCandidate.split(':')[0];
+    if (!allowedModels.includes(baseModelRootCandidate)) {
+      baseModelCandidate = 'anthropic/claude-haiku-4.5';
+    }
+    const baseModel = baseModelCandidate;
+    const routingVariantConfig = (user.default_routing_variant || process.env.OPENROUTER_ROUTING_VARIANT || 'floor').trim();
+    const openrouterModelSlug = routingVariantConfig && !baseModel.includes(':') ? `${baseModel}:${routingVariantConfig}` : baseModel;
+
+    console.log('System prompt:', systemPrompt, includeGuidelines ? `\n${systemGuidelines}` : '');
     console.log('Available tools:', Object.keys(aiTools));
     console.log('Tools list:', availableToolsList.map(t => t.name));
-    
+
     const uiMessagesForModel = [
       {
         role: 'system' as const,
-        parts: [{ type: 'text' as const, text: systemPrompt }],
+        parts: [
+          { type: 'text' as const, text: systemPrompt },
+          ...(includeGuidelines ? [{ type: 'text' as const, text: systemGuidelines, cache_control: { type: 'ephemeral' } as any }] : []),
+        ],
       },
       ...normalizedMessages.map(message => ({
         role: message.role,
@@ -425,9 +455,22 @@ You also have access to the get_current_datetime tool if you need to get the cur
       ignoreIncompleteToolCalls: true,
     });
 
+    const selectedModel = activeProvider === 'anthropic'
+      ? anthropic!.chat((() => {
+          const slug = baseModel.split(':')[0];
+          if (slug === 'anthropic/claude-sonnet-4.5') {
+            return process.env.ANTHROPIC_SONNET_4_5_ID || 'claude-sonnet-4-5-20250929';
+          }
+          if (slug === 'anthropic/claude-haiku-4.5') {
+            return process.env.ANTHROPIC_HAIKU_4_5_ID || 'claude-haiku-4-5-20251001';
+          }
+          return process.env.ANTHROPIC_FALLBACK_MODEL || 'claude-sonnet-4-5-20250929';
+        })())
+      : openrouter!.chat(openrouterModelSlug);
+
     // Stream response from the selected model
     const result = await streamText({
-      model: openrouter.chat('anthropic/claude-haiku-4.5'),
+      model: selectedModel,
       messages: aiMessages,
       tools: Object.keys(aiTools).length > 0 ? aiTools : undefined,
       maxOutputTokens: 4096,

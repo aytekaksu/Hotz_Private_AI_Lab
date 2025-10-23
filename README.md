@@ -72,6 +72,13 @@ DATABASE_URL=file:///data/app.db           # Docker/production (mounted volume)
 NEXTAUTH_URL=https://your.domain
 NEXTAUTH_SECRET=...
 OPENROUTER_API_KEY=...
+APP_PUBLIC_URL=https://your.domain        # sent as HTTP-Referer to OpenRouter
+APP_NAME=Hotz AI Assistant                # X-Title header for OpenRouter attribution
+OPENROUTER_MODEL=anthropic/claude-haiku-4.5
+OPENROUTER_ROUTING_VARIANT=floor          # ':floor' (price-first) or ':nitro' (speed-first)
+ANTHROPIC_API_KEY=...                     # optional: enable direct Anthropic provider
+# ANTHROPIC_SONNET_4_5_ID=claude-sonnet-4-5-20250929   # optional overrides
+# ANTHROPIC_HAIKU_4_5_ID=claude-haiku-4-5-20251001
 ```
 
 Google / Notion OAuth
@@ -96,7 +103,7 @@ GTASKS_TIMEOUT_MS=15000             # request timeouts in ms
 
 Tech Stack
 - Next.js 14 (App Router), React 18, Tailwind
-- AI SDK v5 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai`) via OpenRouter
+- AI SDK v5 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai`, `@ai-sdk/anthropic`)
 - SQLite via better-sqlite3 (Node) with optional `bun:sqlite` fallback when running under Bun
 - Google APIs (`googleapis`), Notion SDK (`@notionhq/client`)
 - Docker + Caddy (TLS, reverse proxy)
@@ -119,4 +126,3 @@ How tool calling works (short)
 
 License
 Proprietary. See repository owner for terms.
-
