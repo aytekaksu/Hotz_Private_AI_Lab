@@ -20,6 +20,16 @@ APP_ENCRYPTION_KEY=<32+ byte hex>
 NEXTAUTH_URL=https://your.domain
 NEXTAUTH_SECRET=<random hex>
 OPENROUTER_API_KEY=<key or user setting>
+# Optional: direct Anthropic usage
+ANTHROPIC_API_KEY=<key or user setting>
+ANTHROPIC_SONNET_4_5_ID=claude-4.5-sonnet   # optional override
+ANTHROPIC_HAIKU_4_5_ID=claude-4.5-haiku     # optional override
+# Optional but recommended for OpenRouter attribution and routing
+APP_PUBLIC_URL=https://your.domain
+APP_NAME=Hotz AI Assistant
+OPENROUTER_MODEL=anthropic/claude-haiku-4.5
+# ':floor' sorts providers by price (cheapest first). Use ':nitro' for throughput.
+OPENROUTER_ROUTING_VARIANT=floor
 ```
 
 OAuth

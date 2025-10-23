@@ -76,6 +76,16 @@ DATABASE_URL=file:///data/app.db
 NEXTAUTH_URL=https://your.domain
 NEXTAUTH_SECRET=...
 OPENROUTER_API_KEY=...
+# Direct Anthropic (optional)
+ANTHROPIC_API_KEY=...
+# Optional model ID overrides for direct Anthropic
+# ANTHROPIC_SONNET_4_5_ID=claude-4.5-sonnet
+# ANTHROPIC_HAIKU_4_5_ID=claude-4.5-haiku
+# OpenRouter attribution & routing (optional)
+APP_PUBLIC_URL=https://your.domain        # sent as HTTP-Referer to OpenRouter
+APP_NAME=Hotz AI Assistant                # sent as X-Title to OpenRouter
+OPENROUTER_MODEL=anthropic/claude-haiku-4.5
+OPENROUTER_ROUTING_VARIANT=floor          # ':floor' (price-first) or ':nitro' (throughput-first)
 ```
 
 Google / Notion OAuth

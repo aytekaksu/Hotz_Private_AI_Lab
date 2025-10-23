@@ -45,6 +45,10 @@ export interface User {
   id: string;
   email: string;
   openrouter_api_key?: string;
+  anthropic_api_key?: string;
+  active_ai_provider?: 'openrouter' | 'anthropic' | null;
+  default_model?: string | null;
+  default_routing_variant?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +146,64 @@ export function getUserOpenRouterKey(userId: string): string | null {
     console.error('Failed to decrypt OpenRouter key:', error);
     return null;
   }
+}
+
+export function updateUserAnthropicKey(userId: string, apiKey: string): void {
+  const db = getDb();
+  const encryptedKey = encryptField(apiKey);
+  const stmt = db.prepare(`
+    UPDATE users 
+    SET anthropic_api_key = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(encryptedKey, userId);
+}
+
+export function getUserAnthropicKey(userId: string): string | null {
+  const user = getUserById(userId);
+  if (!user?.anthropic_api_key) return null;
+  try {
+    return decryptField(user.anthropic_api_key);
+  } catch (error) {
+    console.error('Failed to decrypt Anthropic key:', error);
+    return null;
+  }
+}
+
+export function getActiveAIProvider(userId: string): 'openrouter' | 'anthropic' {
+  const user = getUserById(userId);
+  const val = (user?.active_ai_provider as any) || null;
+  if (val === 'anthropic' || val === 'openrouter') return val;
+  return 'openrouter';
+}
+
+export function setActiveAIProvider(userId: string, provider: 'openrouter' | 'anthropic'): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    UPDATE users
+    SET active_ai_provider = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(provider, userId);
+}
+
+// User default model & routing variant
+export function getUserModelDefaults(userId: string): { model: string | null; routingVariant: string | null } {
+  const user = getUserById(userId) as (User & { default_model?: string | null; default_routing_variant?: string | null }) | null;
+  return {
+    model: user?.default_model ?? null,
+    routingVariant: user?.default_routing_variant ?? null,
+  };
+}
+
+export function updateUserModelDefaults(userId: string, model: string | null, routingVariant: string | null): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    UPDATE users
+    SET default_model = ?, default_routing_variant = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(model || null, routingVariant || null, userId);
 }
 
 // Conversation operations

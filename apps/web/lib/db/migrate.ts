@@ -236,6 +236,32 @@ const migrations = [
     setVersion(4);
     console.log('✓ Migration 4 completed');
   },
+  
+  // Migration 5: User default model + routing variant
+  function migration5() {
+    console.log('Running migration 5: User default model + routing variant');
+    try {
+      db.exec("ALTER TABLE users ADD COLUMN default_model TEXT NULL");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE users ADD COLUMN default_routing_variant TEXT NULL");
+    } catch {}
+    setVersion(5);
+    console.log('✓ Migration 5 completed');
+  },
+  
+  // Migration 6: Anthropic key + active provider
+  function migration6() {
+    console.log('Running migration 6: Anthropic key + active provider');
+    try {
+      db.exec("ALTER TABLE users ADD COLUMN anthropic_api_key TEXT NULL");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE users ADD COLUMN active_ai_provider TEXT NULL");
+    } catch {}
+    setVersion(6);
+    console.log('✓ Migration 6 completed');
+  },
 ];
 
 // Run migrations
