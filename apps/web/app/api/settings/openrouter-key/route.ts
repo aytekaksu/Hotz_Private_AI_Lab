@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getUserById, updateUserOpenRouterKey } from '@/lib/db';
+import { getUserById, getUserOpenRouterKey, updateUserOpenRouterKey } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -17,8 +17,12 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: 'User not found' }, { status: 404 });
     }
     
+    const decrypted = getUserOpenRouterKey(userId);
+    const keySuffix = decrypted ? decrypted.slice(-10) : null;
+
     return Response.json({ 
-      hasKey: !!user.openrouter_api_key 
+      hasKey: !!user.openrouter_api_key,
+      keySuffix,
     });
   } catch (error) {
     console.error('Error checking OpenRouter key:', error);
@@ -43,10 +47,12 @@ export async function POST(req: NextRequest) {
     }
     
     updateUserOpenRouterKey(userId, apiKey);
+    const suffix = apiKey.slice(-10);
     
     return Response.json({ 
       success: true,
-      message: 'API key saved successfully'
+      message: 'API key saved successfully',
+      keySuffix: suffix,
     });
   } catch (error) {
     console.error('Error saving OpenRouter key:', error);

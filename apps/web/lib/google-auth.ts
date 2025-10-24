@@ -37,7 +37,8 @@ export async function getGoogleOAuth2Client(userId: string) {
         tokens.access_token,
         tokens.refresh_token || credentials.refreshToken, // Use new refresh token or keep existing
         tokens.scope || credentials.scope,
-        expiresAt
+        expiresAt,
+        credentials.accountEmail ?? null
       );
     }
   });
@@ -64,6 +65,7 @@ export async function refreshGoogleTokens(userId: string): Promise<boolean> {
   try {
     const oauth2Client = await getGoogleOAuth2Client(userId);
     const { credentials } = await oauth2Client.refreshAccessToken();
+    const existing = getDecryptedOAuthCredential(userId, 'google');
     
     if (credentials.access_token) {
       const expiresAt = credentials.expiry_date ? new Date(credentials.expiry_date) : undefined;
@@ -74,7 +76,8 @@ export async function refreshGoogleTokens(userId: string): Promise<boolean> {
         credentials.access_token,
         credentials.refresh_token || undefined,
         credentials.scope || undefined,
-        expiresAt
+        expiresAt,
+        existing?.accountEmail ?? null
       );
       
       return true;
@@ -86,4 +89,3 @@ export async function refreshGoogleTokens(userId: string): Promise<boolean> {
     return false;
   }
 }
-

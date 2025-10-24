@@ -43,6 +43,9 @@ export default function AgentDetailPage() {
   const [upload, setUpload] = useState<{ id: string; name: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [visibleChatCount, setVisibleChatCount] = useState(20);
+  const chatsLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const chatsLoadingRef = useRef(false);
 
   useEffect(() => {
     const init = async () => {
@@ -206,6 +209,36 @@ export default function AgentDetailPage() {
     if (!agent) return [] as any[];
     return conversations.filter((c) => c.agent_id === agent.id);
   }, [conversations, agent]);
+
+  useEffect(() => {
+    setVisibleChatCount(20);
+  }, [agentConversations.length]);
+
+  useEffect(() => {
+    chatsLoadingRef.current = false;
+  }, [visibleChatCount]);
+
+  useEffect(() => {
+    if (agentConversations.length <= visibleChatCount) return;
+    const sentinel = chatsLoadMoreRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && !chatsLoadingRef.current) {
+          chatsLoadingRef.current = true;
+          setVisibleChatCount((prev) =>
+            Math.min(prev + 20, agentConversations.length),
+          );
+        }
+      },
+      { root: null, threshold: 0.8 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [agentConversations.length, visibleChatCount]);
 
   if (!agent) {
     return (
@@ -427,12 +460,19 @@ export default function AgentDetailPage() {
           {agentConversations.length === 0 ? (
             <p className="text-sm text-muted">No chats yet.</p>
           ) : (
-            agentConversations.map((c) => (
-              <a key={c.id} href={`/agents/${agent.slug}/${c.id}`} className="flex items-center justify-between rounded-xl border border-transparent px-3 py-2 text-sm transition hover:border-border">
-                <span className="truncate">{c.title || 'Untitled conversation'}</span>
-                <span className="text-xs text-muted">{new Date(c.updated_at || c.created_at).toLocaleString()}</span>
-              </a>
-            ))
+            <>
+              {agentConversations.slice(0, visibleChatCount).map((c) => (
+                <a
+                  key={c.id}
+                  href={`/agents/${agent.slug}/${c.id}`}
+                  className="flex items-center justify-between rounded-xl border border-transparent px-3 py-2 text-sm transition hover:border-border"
+                >
+                  <span className="truncate">{c.title || 'Untitled conversation'}</span>
+                  <span className="text-xs text-muted">{new Date(c.updated_at || c.created_at).toLocaleString()}</span>
+                </a>
+              ))}
+              {agentConversations.length > visibleChatCount && <div ref={chatsLoadMoreRef} className="h-4" />}
+            </>
           )}
         </div>
       </div>

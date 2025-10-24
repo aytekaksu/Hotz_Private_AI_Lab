@@ -96,6 +96,7 @@ export interface OAuthCredential {
   expires_at?: string;
   created_at: string;
   updated_at: string;
+  account_email?: string | null;
 }
 
 // User operations
@@ -359,7 +360,8 @@ export function storeOAuthCredential(
   accessToken: string,
   refreshToken?: string,
   scope?: string,
-  expiresAt?: Date
+  expiresAt?: Date,
+  accountEmail?: string | null
 ): OAuthCredential {
   const db = getDb();
   
@@ -370,24 +372,43 @@ export function storeOAuthCredential(
   // Check if credential exists
   const existing = getOAuthCredential(userId, provider);
   
+  const nextAccountEmail = accountEmail ?? existing?.account_email ?? null;
+
   if (existing) {
     // Update existing credential
     const stmt = db.prepare(`
       UPDATE oauth_credentials 
-      SET access_token = ?, refresh_token = ?, scope = ?, expires_at = ?, updated_at = datetime('now')
+      SET access_token = ?, refresh_token = ?, scope = ?, expires_at = ?, account_email = ?, updated_at = datetime('now')
       WHERE user_id = ? AND provider = ?
     `);
-    stmt.run(encryptedAccessToken, encryptedRefreshToken, scope || null, expiresAtStr, userId, provider);
+    stmt.run(
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      scope || null,
+      expiresAtStr,
+      nextAccountEmail,
+      userId,
+      provider
+    );
     return getOAuthCredential(userId, provider)!;
   } else {
     // Insert new credential
     const stmt = db.prepare(`
-      INSERT INTO oauth_credentials (id, user_id, provider, access_token, refresh_token, scope, expires_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      INSERT INTO oauth_credentials (id, user_id, provider, access_token, refresh_token, scope, expires_at, account_email, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `);
     
     const id = crypto.randomUUID();
-    stmt.run(id, userId, provider, encryptedAccessToken, encryptedRefreshToken, scope || null, expiresAtStr);
+    stmt.run(
+      id,
+      userId,
+      provider,
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      scope || null,
+      expiresAtStr,
+      nextAccountEmail
+    );
     
     return getOAuthCredential(userId, provider)!;
   }
@@ -408,6 +429,7 @@ export function getDecryptedOAuthCredential(userId: string, provider: 'google' |
   refreshToken?: string;
   scope?: string;
   expiresAt?: Date;
+  accountEmail?: string | null;
 } | null {
   const credential = getOAuthCredential(userId, provider);
   if (!credential) return null;
@@ -418,6 +440,7 @@ export function getDecryptedOAuthCredential(userId: string, provider: 'google' |
       refreshToken: credential.refresh_token ? decryptField(credential.refresh_token) : undefined,
       scope: credential.scope || undefined,
       expiresAt: credential.expires_at ? new Date(credential.expires_at) : undefined,
+      accountEmail: credential.account_email ?? null,
     };
   } catch (error) {
     console.error('Failed to decrypt OAuth credential:', error);

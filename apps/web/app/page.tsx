@@ -67,6 +67,13 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [visibleConversationCount, setVisibleConversationCount] = useState(30);
+  const conversationLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const conversationLoadingRef = useRef(false);
+  const [visibleSidebarAgentCount, setVisibleSidebarAgentCount] = useState(6);
+  const sidebarAgentsContainerRef = useRef<HTMLDivElement | null>(null);
+  const sidebarAgentsLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const sidebarAgentsLoadingRef = useRef(false);
   const sidebarInteractionRef = useRef(false);
   // Queue for tool calls that arrive before the assistant message exists
   const pendingToolInvocationsRef = useRef<Array<{ id: string; toolName: string; state: string; args?: any }>>([]);
@@ -840,7 +847,11 @@ export default function Home() {
   const activeConversationTitle =
     currentConversation?.title ?? (messages.length > 0 ? 'Conversation' : 'New Conversation');
 
-  const groupedConversations = useMemo(() => {
+  const {
+    groupedConversations,
+    totalFilteredConversations,
+    renderedConversationCount,
+  } = useMemo(() => {
     const now = new Date();
     const filtered = conversations
       .map((conversation) => ({ conversation, date: getConversationDate(conversation) }))
@@ -851,6 +862,9 @@ export default function Home() {
       })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
 
+    const limitedCount = Math.min(visibleConversationCount, filtered.length);
+    const limited = filtered.slice(0, limitedCount);
+
     const sections: Record<string, any[]> = {
       Today: [],
       'Last 7 Days': [],
@@ -858,15 +872,82 @@ export default function Home() {
       Older: [],
     };
 
-    filtered.forEach(({ conversation, date }) => {
+    limited.forEach(({ conversation, date }) => {
       const label = getRecencyLabel(date, now);
       sections[label].push({ ...conversation, date });
     });
 
-    return Object.entries(sections)
-      .filter(([, items]) => items.length > 0)
-      .map(([label, items]) => ({ label, items }));
-  }, [conversations, searchTerm]);
+    return {
+      groupedConversations: Object.entries(sections)
+        .filter(([, items]) => items.length > 0)
+        .map(([label, items]) => ({ label, items })),
+      totalFilteredConversations: filtered.length,
+      renderedConversationCount: limitedCount,
+    };
+  }, [conversations, searchTerm, visibleConversationCount]);
+  const canLoadMoreConversations = renderedConversationCount < totalFilteredConversations;
+
+  useEffect(() => {
+    setVisibleConversationCount(30);
+  }, [searchTerm, conversations.length]);
+
+  useEffect(() => {
+    conversationLoadingRef.current = false;
+  }, [visibleConversationCount]);
+
+  useEffect(() => {
+    if (!canLoadMoreConversations) return;
+    const container = sidebarListRef.current;
+    const sentinel = conversationLoadMoreRef.current;
+    if (!container || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && !conversationLoadingRef.current) {
+          conversationLoadingRef.current = true;
+          setVisibleConversationCount((prev) =>
+            Math.min(prev + 20, totalFilteredConversations),
+          );
+        }
+      },
+      { root: container, threshold: 0.75 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canLoadMoreConversations, totalFilteredConversations]);
+
+  useEffect(() => {
+    setVisibleSidebarAgentCount(6);
+  }, [sortedAgentsByUsage.length]);
+
+  useEffect(() => {
+    sidebarAgentsLoadingRef.current = false;
+  }, [visibleSidebarAgentCount]);
+
+  useEffect(() => {
+    if (sortedAgentsByUsage.length <= visibleSidebarAgentCount) return;
+    const container = sidebarAgentsContainerRef.current;
+    const sentinel = sidebarAgentsLoadMoreRef.current;
+    if (!container || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && !sidebarAgentsLoadingRef.current) {
+          sidebarAgentsLoadingRef.current = true;
+          setVisibleSidebarAgentCount((prev) =>
+            Math.min(prev + 4, sortedAgentsByUsage.length),
+          );
+        }
+      },
+      { root: container, threshold: 0.9 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [sortedAgentsByUsage.length, visibleSidebarAgentCount]);
 
   const conversationList = (
     <aside className="flex h-full w-full flex-col overflow-hidden border-r border-border bg-card/80 shadow-xl backdrop-blur">
@@ -937,54 +1018,57 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          groupedConversations.map((group) => (
-            <div key={group.label} className="space-y-2">
-              <p className="px-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted">{group.label}</p>
-              <div className="space-y-1">
-                {group.items.map((conversation: any) => {
-                  const isActive = conversation.id === currentConversationId;
-                  const title = conversation.title || 'Untitled conversation';
-                  return (
-                    <button
-                      key={conversation.id}
-                      type="button"
-                      onClick={() => loadConversation(conversation.id)}
-                      className={`group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2 text-left transition ${
-                        isActive
-                          ? 'border-accent bg-accent/10 text-foreground'
-                          : 'hover:border-border hover:bg-surface/80'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-2">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium">{title}</p>
-                          {conversation.agent_slug && (
-                            <span className="inline-flex items-center rounded-full border border-border px-2 py-[2px] text-[10px] text-muted">
-                              Agent: {conversation.agent_name || conversation.agent_slug}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-muted">{formatRelativeDate(conversation.date)}</p>
-                      </div>
+          <>
+            {groupedConversations.map((group) => (
+              <div key={group.label} className="space-y-2">
+                <p className="px-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted">{group.label}</p>
+                <div className="space-y-1">
+                  {group.items.map((conversation: any) => {
+                    const isActive = conversation.id === currentConversationId;
+                    const title = conversation.title || 'Untitled conversation';
+                    return (
                       <button
+                        key={conversation.id}
                         type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          deleteConversation(conversation.id);
-                        }}
-                        className="hidden rounded-full border border-border p-1 text-muted transition hover:text-foreground group-hover:inline-flex"
-                        aria-label="Delete conversation"
+                        onClick={() => loadConversation(conversation.id)}
+                        className={`group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2 text-left transition ${
+                          isActive
+                            ? 'border-accent bg-accent/10 text-foreground'
+                            : 'hover:border-border hover:bg-surface/80'
+                        }`}
                       >
-                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
-                          <path d="M6 6l8 8M14 6l-8 8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-medium">{title}</p>
+                            {conversation.agent_slug && (
+                              <span className="inline-flex items-center rounded-full border border-border px-2 py-[2px] text-[10px] text-muted">
+                                Agent: {conversation.agent_name || conversation.agent_slug}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs text-muted">{formatRelativeDate(conversation.date)}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteConversation(conversation.id);
+                          }}
+                          className="hidden rounded-full border border-border p-1 text-muted transition hover:text-foreground group-hover:inline-flex"
+                          aria-label="Delete conversation"
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                            <path d="M6 6l8 8M14 6l-8 8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
                       </button>
-                    </button>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            {canLoadMoreConversations && <div ref={conversationLoadMoreRef} className="h-6" />}
+          </>
         )}
       </nav>
       <div className="border-t border-border/70 px-5 py-5">
@@ -1012,49 +1096,62 @@ export default function Home() {
               </button>
             </div>
             <p className="mt-1 text-[11px] text-muted">Click to view/manage Agents</p>
-            <div className="mt-3 space-y-2 max-h-24 overflow-y-auto pr-1">
+            <div ref={sidebarAgentsContainerRef} className="mt-3 max-h-24 space-y-2 overflow-y-auto pr-1">
               {sortedAgentsByUsage.length === 0 ? (
                 <p className="text-xs text-muted">No custom agents yet.</p>
               ) : (
-                sortedAgentsByUsage.map((agent: any) => (
-                  <div key={agent.id} className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 transition hover:border-border"
-                       onClick={(e) => { e.stopPropagation(); router.push('/agents'); }}>
-                    <span className="truncate text-sm text-foreground">{agent.name}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          // Create conversation immediately and navigate
-                          try {
-                            const res = await fetch('/api/conversations', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ userId, agentId: agent.id }),
-                            });
-                            const data = await res.json();
-                            const convId = data?.conversation?.id;
-                            if (convId) {
-                              router.push(`/agents/${agent.slug}/${convId}`);
+                <>
+                  {sortedAgentsByUsage.slice(0, visibleSidebarAgentCount).map((agent: any) => (
+                    <div
+                      key={agent.id}
+                      className="flex items-center justify-between rounded-lg border border-transparent px-2 py-1.5 transition hover:border-border"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push('/agents');
+                      }}
+                    >
+                      <span className="truncate text-sm text-foreground">{agent.name}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const res = await fetch('/api/conversations', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ userId, agentId: agent.id }),
+                              });
+                              const data = await res.json();
+                              const convId = data?.conversation?.id;
+                              if (convId) {
+                                router.push(`/agents/${agent.slug}/${convId}`);
+                              }
+                            } catch (e) {
+                              console.error('Failed to create agent chat', e);
                             }
-                          } catch (e) {
-                            console.error('Failed to create agent chat', e);
-                          }
-                        }}
-                        className="text-xs font-medium text-accent hover:underline"
-                      >
-                        Chat
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); router.push(`/agents/${agent.slug}`); }}
-                        className="text-xs text-muted hover:text-foreground"
-                      >
-                        Manage
-                      </button>
+                          }}
+                          className="text-xs font-medium text-accent hover:underline"
+                        >
+                          New Chat
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/agents/${agent.slug}`);
+                          }}
+                          className="text-xs text-muted hover:text-foreground"
+                        >
+                          Manage
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                  {sortedAgentsByUsage.length > visibleSidebarAgentCount && (
+                    <div ref={sidebarAgentsLoadMoreRef} className="h-4" />
+                  )}
+                </>
               )}
             </div>
           </div>

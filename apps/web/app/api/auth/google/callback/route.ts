@@ -32,6 +32,22 @@ export async function GET(req: NextRequest) {
       throw new Error('No access token received');
     }
 
+    oauth2Client.setCredentials({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+    });
+
+    let accountEmail: string | null = null;
+    try {
+      const oauth2 = google.oauth2('v2');
+      const userinfo = await oauth2.userinfo.get({ auth: oauth2Client });
+      if (userinfo.data && typeof userinfo.data.email === 'string') {
+        accountEmail = userinfo.data.email;
+      }
+    } catch (profileError) {
+      console.warn('Failed to fetch Google profile email:', profileError);
+    }
+
     // Store encrypted credentials
     const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
     storeOAuthCredential(
@@ -40,7 +56,8 @@ export async function GET(req: NextRequest) {
       tokens.access_token,
       tokens.refresh_token || undefined,
       tokens.scope || undefined,
-      expiresAt
+      expiresAt,
+      accountEmail
     );
 
     return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?success=google_connected`);

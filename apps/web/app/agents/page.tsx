@@ -41,6 +41,9 @@ export default function AgentsIndexPage() {
   const [upload, setUpload] = useState<{ id: string; name: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [visibleAgentsCount, setVisibleAgentsCount] = useState(20);
+  const agentsLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const agentsLoadingRef = useRef(false);
 
   useEffect(() => {
     // Ensure a user exists (re-uses the pattern from main page)
@@ -103,6 +106,34 @@ export default function AgentsIndexPage() {
       void loadBaseTools();
     }
   }, [userId]);
+
+  useEffect(() => {
+    setVisibleAgentsCount(20);
+  }, [agents.length]);
+
+  useEffect(() => {
+    agentsLoadingRef.current = false;
+  }, [visibleAgentsCount]);
+
+  useEffect(() => {
+    if (agents.length <= visibleAgentsCount) return;
+    const sentinel = agentsLoadMoreRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && !agentsLoadingRef.current) {
+          agentsLoadingRef.current = true;
+          setVisibleAgentsCount((prev) => Math.min(prev + 20, agents.length));
+        }
+      },
+      { root: null, threshold: 0.8 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [agents.length, visibleAgentsCount]);
 
   const onUploadFile = async (file: File) => {
     const fd = new FormData();
@@ -455,25 +486,59 @@ export default function AgentsIndexPage() {
           {agents.length === 0 ? (
             <p className="text-sm text-muted">No agents yet.</p>
           ) : (
-            agents.map((a) => (
-              <div key={a.id} className="flex items-center justify-between rounded-xl border border-transparent px-3 py-2 transition hover:border-border">
-                <div className="min-w-0">
-                  <a href={`/agents/${a.slug}`} className="truncate text-sm font-medium hover:underline">{a.name}</a>
+            <>
+              {agents.slice(0, visibleAgentsCount).map((a) => (
+                <div
+                  key={a.id}
+                  className="flex cursor-pointer items-center justify-between rounded-xl border border-transparent px-3 py-2 transition hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(`/agents/${a.slug}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      router.push(`/agents/${a.slug}`);
+                    }
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{a.name}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="text-xs text-accent hover:underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void createAgentChat(a);
+                      }}
+                    >
+                      New Chat
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted hover:text-foreground"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        router.push(`/agents/${a.slug}`);
+                      }}
+                    >
+                      Manage
+                    </button>
+                    <button
+                      className="text-xs text-red-500 hover:underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteAgent(a);
+                      }}
+                      aria-label={`Delete ${a.name}`}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    className="text-xs text-accent hover:underline"
-                    onClick={() => createAgentChat(a)}
-                  >Chat</button>
-                  <a className="text-xs text-muted hover:text-foreground" href={`/agents/${a.slug}`}>Manage</a>
-                  <button
-                    className="text-xs text-red-500 hover:underline"
-                    onClick={() => deleteAgent(a)}
-                    aria-label={`Delete ${a.name}`}
-                  >Delete</button>
-                </div>
-              </div>
-            ))
+              ))}
+              {agents.length > visibleAgentsCount && <div ref={agentsLoadMoreRef} className="h-4" />}
+            </>
           )}
         </div>
       </div>

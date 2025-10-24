@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getUserById, updateUserAnthropicKey } from '@/lib/db';
+import { getUserById, getUserAnthropicKey, updateUserAnthropicKey } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +17,10 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: 'User not found' }, { status: 404 });
     }
 
-    return Response.json({ hasKey: !!user.anthropic_api_key });
+    const decrypted = getUserAnthropicKey(userId);
+    const keySuffix = decrypted ? decrypted.slice(-10) : null;
+
+    return Response.json({ hasKey: !!user.anthropic_api_key, keySuffix });
   } catch (error) {
     console.error('Error checking Anthropic key:', error);
     return Response.json({ error: 'Failed to check API key' }, { status: 500 });
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     updateUserAnthropicKey(userId, apiKey);
 
-    return Response.json({ success: true });
+    return Response.json({ success: true, keySuffix: apiKey.slice(-10) });
   } catch (error) {
     console.error('Error saving Anthropic key:', error);
     return Response.json({ error: 'Failed to save API key' }, { status: 500 });

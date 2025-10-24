@@ -247,6 +247,14 @@ const migrations = [
     setVersion(5);
     console.log('✓ Migration 5 completed');
   },
+
+  // Migration 6: OAuth credential email column
+  function migration6() {
+    console.log('Running migration 6: OAuth credential email column');
+    try { db.exec("ALTER TABLE oauth_credentials ADD COLUMN account_email TEXT NULL"); } catch {}
+    setVersion(6);
+    console.log('✓ Migration 6 completed');
+  },
 ];
 
 // Run migrations

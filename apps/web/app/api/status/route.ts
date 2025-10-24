@@ -35,14 +35,27 @@ export async function GET(req: NextRequest) {
     
     // Check user OAuth connections if userId provided
     let googleConnected = false;
+    let googleEmail: string | null = null;
     let notionConnected = false;
     
     if (userId) {
       try {
-        const googleCred = db.prepare(
-          'SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?'
-        ).get(userId, 'google');
-        googleConnected = !!googleCred;
+        try {
+          const googleCred = db.prepare(
+            'SELECT id, account_email FROM oauth_credentials WHERE user_id = ? AND provider = ?'
+          ).get(userId, 'google');
+          if (googleCred) {
+            googleConnected = true;
+            if (typeof (googleCred as any).account_email === 'string') {
+              googleEmail = (googleCred as any).account_email;
+            }
+          }
+        } catch (innerError) {
+          const legacyGoogleCred = db
+            .prepare('SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?')
+            .get(userId, 'google');
+          googleConnected = !!legacyGoogleCred;
+        }
         
         const notionCred = db.prepare(
           'SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?'
@@ -75,6 +88,7 @@ export async function GET(req: NextRequest) {
       },
       google_connected: googleConnected,
       notion_connected: notionConnected,
+      google_email: googleEmail,
     });
   } catch (error) {
     console.error('Status endpoint error:', error);
@@ -88,5 +102,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
-
