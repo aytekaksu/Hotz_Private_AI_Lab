@@ -33,7 +33,8 @@ export async function GET(
 
     // Check OAuth connections
     const googleConnected = !!getOAuthCredential(userId, 'google');
-    const notionConnected = !!getOAuthCredential(userId, 'notion');
+    const notionConnected =
+      !!getOAuthCredential(userId, 'notion') || !!process.env.NOTION_INTEGRATION_SECRET;
 
     // Build tools list with status (exclude System category tools)
     const toolsList = Object.keys(tools)
@@ -114,10 +115,17 @@ export async function POST(
     // Check if tool requires auth and if user has it
     const metadata = toolMetadata[toolName as ToolName];
     if (metadata.requiresAuth && enabled) {
-      const authConnected = !!getOAuthCredential(userId, metadata.authProvider!);
+      let authConnected = !!getOAuthCredential(userId, metadata.authProvider!);
+      if (metadata.authProvider === 'notion') {
+        authConnected = authConnected || !!process.env.NOTION_INTEGRATION_SECRET;
+      }
       if (!authConnected) {
+        const errorMessage =
+          metadata.authProvider === 'notion'
+            ? 'Notion integration secret not configured. Please add it in Settings.'
+            : `${metadata.authProvider} account not connected. Please connect in Settings.`;
         return Response.json(
-          { error: `${metadata.authProvider} account not connected. Please connect in Settings.` },
+          { error: errorMessage },
           { status: 400 }
         );
       }
@@ -135,4 +143,3 @@ export async function POST(
     );
   }
 }
-

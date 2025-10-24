@@ -14,6 +14,8 @@ import { DefaultChatTransport } from 'ai';
 import { usePathname, useRouter } from 'next/navigation';
 // Theme toggle removed — app is permanently dark
 import type { ToolDefinition } from '@/components/tool-dialog';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;
 
@@ -1199,6 +1201,45 @@ export default function Home() {
     return '';
   };
 
+  const MarkdownMessage = ({ text }: { text: string }) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: (props) => <h1 className="mt-4 mb-2 text-2xl font-bold" {...props} />,
+        h2: (props) => <h2 className="mt-4 mb-2 text-xl font-semibold" {...props} />,
+        h3: (props) => <h3 className="mt-3 mb-1.5 text-lg font-semibold" {...props} />,
+        p: (props) => <p className="mb-3 whitespace-pre-wrap" {...props} />,
+        ul: (props) => <ul className="mb-3 list-disc pl-5 space-y-1" {...props} />,
+        ol: (props) => <ol className="mb-3 list-decimal pl-5 space-y-1" {...props} />,
+        li: (props) => <li className="leading-relaxed" {...props} />,
+        blockquote: (props) => (
+          <blockquote className="mb-3 border-l-2 border-border/60 pl-3 italic text-foreground/90" {...props} />
+        ),
+        a: (props) => <a className="text-accent underline hover:opacity-90" target="_blank" rel="noreferrer" {...props} />,
+        code({ className, children, ...props }) {
+          const isBlock = typeof className === 'string' && className.includes('language-');
+          if (!isBlock) {
+            return (
+              <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...props}>
+                {children}
+              </code>
+            );
+          }
+          return (
+            <pre className="mb-3 overflow-x-auto rounded-xl border border-border bg-surface p-3 text-[0.9em]">
+              <code className={className} {...props}>
+                {children}
+              </code>
+            </pre>
+          );
+        },
+        hr: (props) => <hr className="my-4 border-border/60" {...props} />,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+
   const prettyToolName = (n: any): string => {
     if (typeof n === 'string' && n.trim().length > 0) return formatToolName(n);
     return 'Tool';
@@ -1392,7 +1433,9 @@ export default function Home() {
                         </div>
                       ) : (
                         <div className="w-full max-w-[90%] md:max-w-[80ch]">
-                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
+                          <div className="text-sm leading-relaxed text-foreground">
+                            <MarkdownMessage text={text} />
+                          </div>
                           {attachmentsForMessage.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-2">
                               {attachmentsForMessage.map((attachment: any) => (

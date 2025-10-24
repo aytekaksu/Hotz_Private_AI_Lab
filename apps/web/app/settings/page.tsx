@@ -26,6 +26,12 @@ export default function SettingsPage() {
   const [anthropicDisplay, setAnthropicDisplay] = useState('');
   const [googleConnected, setGoogleConnected] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
+  const [hasNotionSecret, setHasNotionSecret] = useState(false);
+  const [notionSecretDisplay, setNotionSecretDisplay] = useState('');
+  const [notionSecret, setNotionSecret] = useState('');
+  const [isSavingNotionSecret, setIsSavingNotionSecret] = useState(false);
+  const [notionSecretSaved, setNotionSecretSaved] = useState(false);
+  const [isRemovingNotionSecret, setIsRemovingNotionSecret] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [defaultModel, setDefaultModel] = useState('anthropic/claude-haiku-4.5');
@@ -36,6 +42,7 @@ export default function SettingsPage() {
 
   const loadSettings = useCallback(async (uid: string) => {
     setIsLoading(true);
+    let notionSecretConfigured = false;
     try {
       const response = await fetch(`/api/settings/openrouter-key?userId=${uid}`);
       const data = await response.json();
@@ -99,9 +106,36 @@ export default function SettingsPage() {
         console.warn('Failed to load provider preference:', error);
       }
 
+      try {
+        const notionRes = await fetch(`/api/settings/notion-secret?userId=${uid}`);
+        if (notionRes.ok) {
+          const notionData = await notionRes.json();
+          notionSecretConfigured = !!notionData.hasSecret;
+          if (notionSecretConfigured) {
+            const suffix = typeof notionData.secretSuffix === 'string' ? notionData.secretSuffix : null;
+            setHasNotionSecret(true);
+            setNotionSecretDisplay(formatKeyPreview(suffix));
+          } else {
+            setHasNotionSecret(false);
+            setNotionSecretDisplay('');
+          }
+        } else {
+          notionSecretConfigured = false;
+          setHasNotionSecret(false);
+          setNotionSecretDisplay('');
+        }
+      } catch (error) {
+        console.warn('Failed to load Notion integration state:', error);
+        notionSecretConfigured = false;
+        setHasNotionSecret(false);
+        setNotionSecretDisplay('');
+      }
+      setNotionSecret('');
+      setNotionConnected(notionSecretConfigured);
+
       const statusResponse = await fetch(`/api/status?userId=${uid}`);
       const statusData = await statusResponse.json();
-      setNotionConnected(statusData.notion_connected || false);
+      setNotionConnected(prev => prev || statusData.notion_connected || false);
 
       try {
         const googleStatusRes = await fetch(`/api/settings/google-connection?userId=${uid}`);
@@ -352,10 +386,6 @@ export default function SettingsPage() {
     window.location.href = `/api/auth/google?userId=${userId}`;
   };
 
-  const connectNotion = () => {
-    window.location.href = `/api/auth/notion?userId=${userId}`;
-  };
-
   const disconnectGoogle = async () => {
     if (!confirm('Disconnect Google? Calendar and Tasks features will be disabled.')) return;
     try {
@@ -379,19 +409,86 @@ export default function SettingsPage() {
     }
   };
 
-  const disconnectNotion = async () => {
-    if (!confirm('Disconnect Notion account?')) return;
+  const saveNotionSecret = async () => {
+    const secret = notionSecret.trim();
+    if (!secret || isSavingNotionSecret || !userId) return;
+    setIsSavingNotionSecret(true);
+    setNotionSecretSaved(false);
+
     try {
-      await fetch(`/api/auth/notion?userId=${userId}`, { method: 'DELETE' });
+      const response = await fetch('/api/settings/notion-secret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, secret }),
+      });
+
+      let result: any = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
+
+      if (response.ok) {
+        const suffix =
+          (result && typeof result.secretSuffix === 'string'
+            ? result.secretSuffix
+            : secret.slice(-6));
+        setHasNotionSecret(true);
+        setNotionSecretDisplay(formatKeyPreview(suffix));
+        setNotionSecret('');
+        setNotionConnected(true);
+        setNotionSecretSaved(true);
+        setTimeout(() => setNotionSecretSaved(false), 3000);
+      } else {
+        alert(`Failed to save Notion integration secret: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to save Notion integration secret:', error);
+      alert('Failed to save Notion integration secret');
+    } finally {
+      setIsSavingNotionSecret(false);
+    }
+  };
+
+  const removeNotionSecret = async () => {
+    if (!userId) return;
+    if (!hasNotionSecret) {
+      setNotionSecret('');
+      setNotionSecretDisplay('');
+      return;
+    }
+    if (!confirm('Remove the Notion integration secret? Notion tools will be disabled.')) return;
+    setIsRemovingNotionSecret(true);
+    try {
+      const response = await fetch('/api/settings/notion-secret', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || 'Failed to remove secret');
+      }
+
+      setHasNotionSecret(false);
+      setNotionSecretDisplay('');
+      setNotionSecret('');
       setNotionConnected(false);
     } catch (error) {
       console.error('Failed to disconnect Notion:', error);
-      alert('Failed to disconnect Notion account');
+      alert('Failed to remove Notion integration secret');
+    } finally {
+      setIsRemovingNotionSecret(false);
     }
   };
 
   const openRouterEnabled = provider === 'openrouter';
   const anthropicEnabled = provider === 'anthropic';
+  const notionSaveLabel = hasNotionSecret ? 'Update secret' : 'Save secret';
+  const notionSaveButtonText = isSavingNotionSecret ? 'Saving…' : notionSaveLabel;
+  const notionRemoveButtonText = isRemovingNotionSecret ? 'Removing…' : 'Remove secret';
 
   if (isLoading) {
     return (
@@ -499,24 +596,50 @@ export default function SettingsPage() {
                     </span>
                   )}
                 </div>
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  {notionConnected ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="text-xs text-muted">Current secret</p>
+                    <p
+                      className={`mt-1 font-mono text-sm ${hasNotionSecret ? 'text-foreground' : 'text-muted'}`}
+                    >
+                      {hasNotionSecret ? notionSecretDisplay : 'None saved'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                    <input
+                      type="password"
+                      value={notionSecret}
+                      onChange={(event) => setNotionSecret(event.target.value)}
+                      placeholder="Paste integration secret"
+                      className="w-full flex-1 rounded-full border border-border bg-background/60 px-4 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-0"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
                     <button
                       type="button"
-                      onClick={disconnectNotion}
-                      className="text-sm text-muted transition hover:text-red-400"
+                      onClick={saveNotionSecret}
+                      disabled={isSavingNotionSecret || !notionSecret.trim()}
+                      className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Disconnect Notion
+                      {notionSaveButtonText}
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={connectNotion}
-                      className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
-                    >
-                      Connect Notion
-                    </button>
+                    {hasNotionSecret && (
+                      <button
+                        type="button"
+                        onClick={removeNotionSecret}
+                        disabled={isRemovingNotionSecret}
+                        className="text-sm text-muted transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {notionRemoveButtonText}
+                      </button>
+                    )}
+                  </div>
+                  {notionSecretSaved && (
+                    <p className="text-xs text-emerald-400">Secret saved ✓</p>
                   )}
+                  <p className="text-xs leading-relaxed text-muted">
+                    Create a private integration in Notion, copy its secret, then share any relevant databases or pages with it.
+                  </p>
                 </div>
               </div>
             </div>

@@ -32,7 +32,16 @@ export async function GET(req: NextRequest) {
     const recentMsgs = db.prepare(
       'SELECT COUNT(*) as count FROM messages WHERE created_at > ?'
     ).get(yesterday) as { count: number };
-    
+    let notionConfigured = false;
+    try {
+      const notionConfigRow = db
+        .prepare('SELECT 1 as configured FROM oauth_credentials WHERE provider = ? LIMIT 1')
+        .get('notion') as { configured?: number } | undefined;
+      notionConfigured = !!notionConfigRow;
+    } catch (configError) {
+      console.warn('Failed to evaluate Notion configuration state:', configError);
+    }
+
     // Check user OAuth connections if userId provided
     let googleConnected = false;
     let googleEmail: string | null = null;
@@ -60,7 +69,7 @@ export async function GET(req: NextRequest) {
         const notionCred = db.prepare(
           'SELECT id FROM oauth_credentials WHERE user_id = ? AND provider = ?'
         ).get(userId, 'notion');
-        notionConnected = !!notionCred;
+        notionConnected = !!notionCred || !!process.env.NOTION_INTEGRATION_SECRET;
       } catch (e) {
         // Ignore errors checking user credentials
       }
@@ -84,7 +93,7 @@ export async function GET(req: NextRequest) {
       features: {
         openrouter: !!process.env.APP_ENCRYPTION_KEY,
         google_oauth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-        notion_oauth: !!(process.env.NOTION_CLIENT_ID && process.env.NOTION_CLIENT_SECRET),
+        notion_private_integration: notionConfigured || !!process.env.NOTION_INTEGRATION_SECRET,
       },
       google_connected: googleConnected,
       notion_connected: notionConnected,

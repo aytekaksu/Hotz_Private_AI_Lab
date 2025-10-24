@@ -39,10 +39,22 @@ export async function GET(req: NextRequest) {
     : `Missing: ${missingEnvVars.join(', ')}`;
 
   // Check optional OAuth configuration
-  const optionalChecks = {
+  const optionalChecks: Record<string, boolean> = {
     google_oauth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    notion_oauth: !!(process.env.NOTION_CLIENT_ID && process.env.NOTION_CLIENT_SECRET),
+    notion_private_integration: !!process.env.NOTION_INTEGRATION_SECRET,
   };
+
+  try {
+    const db = getDb();
+    const notionRow = db
+      .prepare('SELECT 1 as configured FROM oauth_credentials WHERE provider = ? LIMIT 1')
+      .get('notion') as { configured?: number } | undefined;
+    optionalChecks.notion_private_integration =
+      optionalChecks.notion_private_integration || !!notionRow;
+  } catch (error) {
+    // Ignore database errors here; primary database check already captured status.
+  }
+
   checks.details.oauth = optionalChecks;
 
   // Overall status
@@ -53,6 +65,5 @@ export async function GET(req: NextRequest) {
 
   return Response.json(checks, { status: statusCode });
 }
-
 
 

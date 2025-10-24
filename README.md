@@ -41,7 +41,7 @@ OPENROUTER_API_KEY=<your-openrouter-key>
 cd apps/web
 npm run dev
 ```
-Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google/Notion when needed.
+Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google and add your Notion integration secret when needed.
 
 Production with Docker
 ```bash
@@ -81,13 +81,19 @@ ANTHROPIC_API_KEY=...                     # optional: enable direct Anthropic pr
 # ANTHROPIC_HAIKU_4_5_ID=claude-haiku-4-5-20251001
 ```
 
-Google / Notion OAuth
+Google OAuth
 ```env
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-NOTION_CLIENT_ID=...
-NOTION_CLIENT_SECRET=...
 ```
+
+Notion integration secret (private integrations)
+```env
+# Optional — you can also paste the secret in Settings → Notion
+NOTION_INTEGRATION_SECRET=...
+```
+
+After creating a Notion private integration, copy the secret into Settings → Connected Services → Notion (or set `NOTION_INTEGRATION_SECRET` before boot).
 
 Calendar output shaping (token control)
 ```env

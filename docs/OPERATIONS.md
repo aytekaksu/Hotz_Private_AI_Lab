@@ -30,13 +30,15 @@ ANTHROPIC_API_KEY=<key or user setting>
 # ANTHROPIC_HAIKU_4_5_ID=claude-haiku-4-5-20251001
 ```
 
-OAuth
+Integrations
 ```env
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-NOTION_CLIENT_ID=...
-NOTION_CLIENT_SECRET=...
+# Optional — configure via env or through Settings → Notion
+NOTION_INTEGRATION_SECRET=...
 ```
+
+Use Settings → Connected Services → Notion to paste the private integration secret at runtime if you don't set it via environment variables.
 
 Token Controls
 ```env

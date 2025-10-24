@@ -3,11 +3,13 @@ import { getDecryptedOAuthCredential } from '../db';
 
 function getNotionClient(userId: string) {
   const credentials = getDecryptedOAuthCredential(userId, 'notion');
-  if (!credentials) {
-    throw new Error('Notion account not connected. Please connect in Settings.');
+  const authToken = credentials?.accessToken ?? process.env.NOTION_INTEGRATION_SECRET;
+
+  if (!authToken) {
+    throw new Error('Notion integration not configured. Add your integration secret in Settings.');
   }
   
-  return new Client({ auth: credentials.accessToken });
+  return new Client({ auth: authToken });
 }
 
 export async function queryNotionDatabase(
@@ -229,5 +231,4 @@ export async function getNotionPage(
     };
   }
 }
-
 
