@@ -255,6 +255,22 @@ const migrations = [
     setVersion(6);
     console.log('✓ Migration 6 completed');
   },
+
+  // Migration 7: Ensure oauth credential email column exists
+  function migration7() {
+    console.log('Running migration 7: Ensure oauth credential email column');
+    try {
+      const columns = db.prepare('PRAGMA table_info(oauth_credentials);').all() as Array<{ name: string }>;
+      const hasColumn = columns.some((col) => col.name === 'account_email');
+      if (!hasColumn) {
+        db.exec('ALTER TABLE oauth_credentials ADD COLUMN account_email TEXT NULL');
+      }
+    } catch (error) {
+      console.error('Failed to add account_email column during migration 7:', error);
+    }
+    setVersion(7);
+    console.log('✓ Migration 7 completed');
+  },
 ];
 
 // Run migrations

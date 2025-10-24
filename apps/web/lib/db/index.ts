@@ -369,48 +369,89 @@ export function storeOAuthCredential(
   const encryptedRefreshToken = refreshToken ? encryptField(refreshToken) : null;
   const expiresAtStr = expiresAt ? expiresAt.toISOString() : null;
   
-  // Check if credential exists
   const existing = getOAuthCredential(userId, provider);
-  
   const nextAccountEmail = accountEmail ?? existing?.account_email ?? null;
 
-  if (existing) {
-    // Update existing credential
-    const stmt = db.prepare(`
-      UPDATE oauth_credentials 
-      SET access_token = ?, refresh_token = ?, scope = ?, expires_at = ?, account_email = ?, updated_at = datetime('now')
-      WHERE user_id = ? AND provider = ?
-    `);
-    stmt.run(
-      encryptedAccessToken,
-      encryptedRefreshToken,
-      scope || null,
-      expiresAtStr,
-      nextAccountEmail,
-      userId,
-      provider
-    );
+  const run = (includeAccountEmail: boolean): OAuthCredential => {
+    const updateSql = includeAccountEmail
+      ? `UPDATE oauth_credentials
+         SET access_token = ?, refresh_token = ?, scope = ?, expires_at = ?, account_email = ?, updated_at = datetime('now')
+         WHERE user_id = ? AND provider = ?`
+      : `UPDATE oauth_credentials
+         SET access_token = ?, refresh_token = ?, scope = ?, expires_at = ?, updated_at = datetime('now')
+         WHERE user_id = ? AND provider = ?`;
+
+    const insertSql = includeAccountEmail
+      ? `INSERT INTO oauth_credentials (id, user_id, provider, access_token, refresh_token, scope, expires_at, account_email, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      : `INSERT INTO oauth_credentials (id, user_id, provider, access_token, refresh_token, scope, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`;
+
+    if (existing) {
+      const params = includeAccountEmail
+        ? [
+            encryptedAccessToken,
+            encryptedRefreshToken,
+            scope || null,
+            expiresAtStr,
+            nextAccountEmail,
+            userId,
+            provider,
+          ]
+        : [
+            encryptedAccessToken,
+            encryptedRefreshToken,
+            scope || null,
+            expiresAtStr,
+            userId,
+            provider,
+          ];
+      db.prepare(updateSql).run(...params);
+    } else {
+      const id = crypto.randomUUID();
+      const params = includeAccountEmail
+        ? [
+            id,
+            userId,
+            provider,
+            encryptedAccessToken,
+            encryptedRefreshToken,
+            scope || null,
+            expiresAtStr,
+            nextAccountEmail,
+          ]
+        : [
+            id,
+            userId,
+            provider,
+            encryptedAccessToken,
+            encryptedRefreshToken,
+            scope || null,
+            expiresAtStr,
+          ];
+      db.prepare(insertSql).run(...params);
+    }
+
     return getOAuthCredential(userId, provider)!;
-  } else {
-    // Insert new credential
-    const stmt = db.prepare(`
-      INSERT INTO oauth_credentials (id, user_id, provider, access_token, refresh_token, scope, expires_at, account_email, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `);
-    
-    const id = crypto.randomUUID();
-    stmt.run(
-      id,
-      userId,
-      provider,
-      encryptedAccessToken,
-      encryptedRefreshToken,
-      scope || null,
-      expiresAtStr,
-      nextAccountEmail
-    );
-    
-    return getOAuthCredential(userId, provider)!;
+  };
+
+  const isAccountEmailError = (error: unknown) =>
+    error instanceof Error && /account_email/i.test(error.message);
+
+  try {
+    return run(true);
+  } catch (error) {
+    if (!isAccountEmailError(error)) {
+      throw error;
+    }
+
+    try {
+      db.exec("ALTER TABLE oauth_credentials ADD COLUMN account_email TEXT NULL");
+      return run(true);
+    } catch (alterError) {
+      console.error('Failed to add account_email column on-demand:', alterError);
+      return run(false);
+    }
   }
 }
 

@@ -75,6 +75,8 @@ Database migrations can be run outside the container (or provided as a task insi
 DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db npm run db:migrate
 ```
 
+> **Note:** Always run the migration command above immediately after pulling new code (and before testing OAuth integrations). Missing schema updates—such as the `account_email` column on `oauth_credentials`—can silently break Google Calendar/Tasks tool calls even when tokens refresh successfully.
+
 ## Logs & Troubleshooting
 
 View logs:
