@@ -72,7 +72,6 @@ Prereqs
 - `.env` configured for production (see Configuration)
 - Docker and docker compose installed
 - Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
-- Optional offline base image: if the host cannot reach Docker Hub, drop `bun-1.3.1-alpine.tar` into the repository root. The deploy script loads it automatically and falls back to Docker's classic builder so the image can be built offline.
 
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 

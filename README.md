@@ -53,7 +53,6 @@ Notes
 - Bun is the only runtime for development and production. Install Bun 1.3.1+ locally for tooling parity; Node/npm are no longer required.
 - Docker builds intentionally run without layer caching so releases are completely reproducible.
 - Redis, NextAuth, `better-sqlite3`, and other unused Node tooling have been removed to keep the stack lean.
-- If Docker Hub is unreachable, place `bun-1.3.1-alpine.tar` in the repository root. The deploy script loads `oven/bun:1.3.1-alpine` from that archive and switches to Docker's classic builder so the image can be built offline.
 
 Deploy
 - One‑command deploy to production (Docker + Caddy):
