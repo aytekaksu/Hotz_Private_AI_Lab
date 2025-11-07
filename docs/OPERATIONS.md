@@ -51,30 +51,33 @@ GTASKS_TIMEOUT_MS=15000
 ## Build & Deploy
 
 ```bash
-docker compose build web
+docker compose build --no-cache web
 docker compose up -d
 ```
 
 Quick Deploy Script
 ```
-npm run deploy
+bun run deploy
 ```
 - Builds the `web` image (Next.js app)
 - Restarts only the `web` service
 - Executes DB migrations against `./data/sqlite/app.db` (idempotent)
 - Prints `docker compose ps` and performs a lightweight `/api/health` check
+- Uses Bun to install workspace dependencies before building and runs `docker compose build --no-cache` for deterministic images
 
 Script location: `scripts/deploy.sh`
 
 Prereqs
+- Bun 1.3.1+ installed on the host (deploy script and tooling run with Bun)
 - `.env` configured for production (see Configuration)
 - Docker and docker compose installed
 - Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
+- Optional offline base image: if the host cannot reach Docker Hub, drop `bun-1.3.1-alpine.tar` into the repository root. The deploy script loads it automatically and falls back to Docker's classic builder so the image can be built offline.
 
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
-DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db npm run db:migrate
+DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db bun run db:migrate
 ```
 
 > **Note:** Always run the migration command above immediately after pulling new code (and before testing OAuth integrations). Missing schema updates—such as the `account_email` column on `oauth_credentials`—can silently break Google Calendar/Tasks tool calls even when tokens refresh successfully.

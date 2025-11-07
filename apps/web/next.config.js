@@ -10,13 +10,10 @@ const nextConfig = {
   swcMinify: true,
   compress: true,
   poweredByHeader: false,
-  webpack: (config, { dev, isServer }) => {
-    // Externalize better-sqlite3 for server-side
-    config.externals.push({
-      'better-sqlite3': 'commonjs better-sqlite3',
-      'bun:sqlite': 'commonjs bun:sqlite',
-    });
-    
+  webpack: (config, { dev }) => {
+    config.externals = config.externals || [];
+    config.externals.push({ 'bun:sqlite': 'commonjs bun:sqlite' });
+
     // Optimize for development
     if (dev) {
       config.watchOptions = {

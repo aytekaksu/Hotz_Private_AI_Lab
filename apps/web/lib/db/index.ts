@@ -1,43 +1,39 @@
+import type { Database as BunDatabase } from 'bun:sqlite';
 import { encryptField, decryptField } from '../encryption';
 
-type DBLike = {
-  exec: (sql: string) => unknown;
-  prepare: (sql: string) => any;
-  close: () => void;
-};
+let db: BunDatabase | null = null;
 
-let db: DBLike | null = null;
-
-export function getDb(): DBLike {
-  if (!db) {
-    const dbPath = process.env.DATABASE_URL?.replace('file://', '') || './data/app.db';
-    // Prefer bun:sqlite when running under Bun, fallback to better-sqlite3 on Node
-    try {
-      // @ts-ignore - require available in Node/Bun
-      const isBun = typeof (globalThis as any).Bun !== 'undefined';
-      if (isBun) {
-        // @ts-ignore - bun:sqlite is provided by Bun at runtime
-        const { Database: BunDatabase } = require('bun:sqlite');
-        const instance = new BunDatabase(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-        db = instance;
-      } else {
-        // @ts-ignore - CJS require for Node
-        const BetterSqlite3 = require('better-sqlite3');
-        const instance = new BetterSqlite3(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-        db = instance;
-      }
-    } catch (e) {
-      // Final fallback to better-sqlite3 if bun:sqlite is unavailable
-      // @ts-ignore - CJS require for Node
-      const BetterSqlite3 = require('better-sqlite3');
-      const instance = new BetterSqlite3(dbPath);
-      instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-      db = instance;
-    }
+function loadSqlite(): typeof import('bun:sqlite') {
+  if (typeof (globalThis as any).Bun === 'undefined') {
+    throw new Error('bun:sqlite is only available when running under the Bun runtime.');
   }
-  return db!;
+  return require('bun:sqlite') as typeof import('bun:sqlite');
+}
+
+function resolveDbPath(url: string | undefined): string {
+  if (!url) return './data/app.db';
+  if (url.startsWith('file://')) {
+    return url.slice('file://'.length);
+  }
+  if (url.startsWith('file:')) {
+    return url.slice('file:'.length);
+  }
+  return url;
+}
+
+function openDatabase(): BunDatabase {
+  const { Database } = loadSqlite();
+  const dbPath = resolveDbPath(process.env.DATABASE_URL);
+  const instance = new Database(dbPath);
+  instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
+  return instance;
+}
+
+export function getDb(): BunDatabase {
+  if (!db) {
+    db = openDatabase();
+  }
+  return db;
 }
 
 // Types

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
 import { Disclosure } from '@headlessui/react';
 import { useRouter } from 'next/navigation';
 import { DEFAULT_SYSTEM_PROMPT_TEXT } from '@/lib/default-system-prompt';
@@ -79,33 +79,36 @@ export default function AgentsIndexPage() {
     void init();
   }, []);
 
-  const loadAgents = async () => {
+  const loadAgents = useCallback(async () => {
     if (!userId) return;
     const res = await fetch(`/api/agents?userId=${userId}`);
     const data = await res.json();
     setAgents(Array.isArray(data.agents) ? data.agents : []);
-  };
+  }, [userId]);
 
-  const loadAgentTools = async (agentId: string) => {
-    if (!userId) return;
-    const res = await fetch(`/api/agents/${agentId}/tools?userId=${userId}`);
-    const data = await res.json();
-    setTools(Array.isArray(data.tools) ? data.tools : []);
-  };
+  const loadAgentTools = useCallback(
+    async (agentId: string) => {
+      if (!userId) return;
+      const res = await fetch(`/api/agents/${agentId}/tools?userId=${userId}`);
+      const data = await res.json();
+      setTools(Array.isArray(data.tools) ? data.tools : []);
+    },
+    [userId],
+  );
 
-  const loadBaseTools = async () => {
+  const loadBaseTools = useCallback(async () => {
     if (!userId) return;
     const res = await fetch(`/api/agents/tools?userId=${userId}`);
     const data = await res.json();
     setTools(Array.isArray(data.tools) ? data.tools : []);
-  };
+  }, [userId]);
 
   useEffect(() => {
     if (userId) {
       void loadAgents();
       void loadBaseTools();
     }
-  }, [userId]);
+  }, [userId, loadAgents, loadBaseTools]);
 
   useEffect(() => {
     setVisibleAgentsCount(20);

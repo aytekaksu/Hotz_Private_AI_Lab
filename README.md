@@ -17,12 +17,12 @@ Features
 
 Quick Start (local)
 1) Requirements
-- Node 20+, npm 10+
+- Bun 1.3.1+
 
 2) Install (web app)
 ```bash
-cd apps/web
-npm ci
+cd /root/Hotz_AI_Lab
+bun install
 ```
 
 3) Environment
@@ -39,24 +39,26 @@ OPENROUTER_API_KEY=<your-openrouter-key>
 4) Run the dev server
 ```bash
 cd apps/web
-npm run dev
+bun run dev
 ```
 Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect Google and add your Notion integration secret when needed.
 
 Production with Docker
 ```bash
-docker compose build web
+docker compose build --no-cache web
 docker compose up -d
 ```
 
 Notes
-- The Docker build caches `npm ci` output, so repeat `docker compose build web` runs are near instant once warmed. Clear with `docker builder prune` if you need a fresh install.
-- You do not need Bun locally. The Dockerfile uses Bun internally for a faster Next.js build step, but the app runs on Node 20 in development and production.
+- Bun is the only runtime for development and production. Install Bun 1.3.1+ locally for tooling parity; Node/npm are no longer required.
+- Docker builds intentionally run without layer caching so releases are completely reproducible.
+- Redis, NextAuth, `better-sqlite3`, and other unused Node tooling have been removed to keep the stack lean.
+- If Docker Hub is unreachable, place `bun-1.3.1-alpine.tar` in the repository root. The deploy script loads `oven/bun:1.3.1-alpine` from that archive and switches to Docker's classic builder so the image can be built offline.
 
 Deploy
 - One‑command deploy to production (Docker + Caddy):
   - Requirements: Docker, docker compose, valid `.env` at repo root (see docs/OPERATIONS.md)
-  - Command: `npm run deploy`
+  - Command: `bun run deploy`
   - What it does:
     - Builds the `web` image
     - Restarts the `web` service
@@ -66,17 +68,17 @@ Deploy
 Configuration
 Core
 ```env
-APP_ENCRYPTION_KEY=...        # AES-256-GCM key for secrets at rest
-DATABASE_URL=file:///data/app.db           # Docker/production (mounted volume)
-# DATABASE_URL=file:./data/app.db         # Local dev (inside apps/web)
+APP_ENCRYPTION_KEY=...                      # AES-256-GCM key for secrets at rest
+DATABASE_URL=file:///data/app.db            # Docker/production (mounted volume)
+# DATABASE_URL=file:./data/app.db          # Local dev (inside apps/web)
 NEXTAUTH_URL=https://your.domain
 NEXTAUTH_SECRET=...
 OPENROUTER_API_KEY=...
-APP_PUBLIC_URL=https://your.domain        # sent as HTTP-Referer to OpenRouter
-APP_NAME=Hotz AI Assistant                # X-Title header for OpenRouter attribution
+APP_PUBLIC_URL=https://your.domain          # sent as HTTP-Referer to OpenRouter
+APP_NAME=Hotz AI Assistant                  # X-Title header for OpenRouter attribution
 OPENROUTER_MODEL=anthropic/claude-haiku-4.5
-OPENROUTER_ROUTING_VARIANT=floor          # ':floor' (price-first) or ':nitro' (speed-first)
-ANTHROPIC_API_KEY=...                     # optional: enable direct Anthropic provider
+OPENROUTER_ROUTING_VARIANT=floor            # ':floor' (price-first) or ':nitro' (speed-first)
+ANTHROPIC_API_KEY=...                       # optional: enable direct Anthropic provider
 # ANTHROPIC_SONNET_4_5_ID=claude-sonnet-4-5-20250929   # optional overrides
 # ANTHROPIC_HAIKU_4_5_ID=claude-haiku-4-5-20251001
 ```
@@ -110,7 +112,7 @@ GTASKS_TIMEOUT_MS=15000             # request timeouts in ms
 Tech Stack
 - Next.js 14 (App Router), React 18, Tailwind
 - AI SDK v5 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai`, `@ai-sdk/anthropic`)
-- SQLite via better-sqlite3 (Node) with optional `bun:sqlite` fallback when running under Bun
+- SQLite via Bun's built-in `bun:sqlite`
 - Google APIs (`googleapis`), Notion SDK (`@notionhq/client`)
 - Docker + Caddy (TLS, reverse proxy)
 

@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM caddy:2-builder AS builder
-RUN xcaddy build \
-  --with github.com/caddy-dns/cloudflare
+FROM caddy:2-builder-alpine AS builder
+RUN apk add --no-cache binutils && \
+  xcaddy build \
+    --with github.com/caddy-dns/cloudflare \
+    && strip /usr/bin/caddy
 
-FROM caddy:2
+FROM caddy:2-alpine
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
 import { Disclosure } from '@headlessui/react';
 import { useRouter, useParams } from 'next/navigation';
 import { DEFAULT_SYSTEM_PROMPT_TEXT } from '@/lib/default-system-prompt';
@@ -62,7 +62,17 @@ export default function AgentDetailPage() {
     void init();
   }, []);
 
-  const loadAgents = async () => {
+  const loadTools = useCallback(
+    async (agentId: string) => {
+      if (!userId) return;
+      const res = await fetch(`/api/agents/${agentId}/tools?userId=${userId}`);
+      const data = await res.json();
+      setTools(Array.isArray(data.tools) ? data.tools : []);
+    },
+    [userId],
+  );
+
+  const loadAgents = useCallback(async () => {
     if (!userId) return;
     const res = await fetch(`/api/agents?userId=${userId}`);
     const data = await res.json();
@@ -83,28 +93,21 @@ export default function AgentDetailPage() {
       }
       await loadTools(found.id);
     }
-  };
+  }, [loadTools, slug, userId]);
 
-  const loadTools = async (agentId: string) => {
-    if (!userId) return;
-    const res = await fetch(`/api/agents/${agentId}/tools?userId=${userId}`);
-    const data = await res.json();
-    setTools(Array.isArray(data.tools) ? data.tools : []);
-  };
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     if (!userId) return;
     const res = await fetch(`/api/conversations?userId=${userId}`);
     const data = await res.json();
     setConversations(Array.isArray(data.conversations) ? data.conversations : []);
-  };
+  }, [userId]);
 
   useEffect(() => {
     if (userId) {
       void loadAgents();
       void loadConversations();
     }
-  }, [userId]);
+  }, [userId, loadAgents, loadConversations]);
 
   const onUploadFile = async (file: File) => {
     const fd = new FormData();

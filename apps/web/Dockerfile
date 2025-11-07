@@ -1,47 +1,51 @@
-FROM node:20-alpine AS deps
-WORKDIR /app
-RUN apk add --no-cache python3 make g++
-COPY package.json ./
-COPY package-lock.json* ./
-# Prefer reproducible installs; fall back when no lockfile
-RUN --mount=type=cache,target=/root/.npm \
-    if [ -f package-lock.json ]; then \
-      npm ci --cache /root/.npm --prefer-offline --no-audit --no-fund; \
-    else \
-      npm install --cache /root/.npm --prefer-offline --no-audit --no-fund; \
-    fi
+ARG BUN_IMAGE=oven/bun:1.3.1-alpine
+ARG APP_SRC=apps/web
 
-FROM node:20-alpine AS builder
+FROM ${BUN_IMAGE} AS deps
+ARG APP_SRC
 WORKDIR /app
-RUN apk add --no-cache python3 make g++ curl bash unzip
-RUN curl -fsSL https://bun.sh/install | bash
-ENV BUN_INSTALL="/root/.bun"
-ENV PATH="$BUN_INSTALL/bin:$PATH"
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun
+
+COPY ${APP_SRC}/package.json ./package.json
+COPY ${APP_SRC}/bun.lock ./bun.lock
+
+RUN bun install --no-save
+
+FROM ${BUN_IMAGE} AS builder
+ARG APP_SRC
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun \
+    NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=2048"
+
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NODE_OPTIONS="--max-old-space-size=2048"
-ENV NEXT_DISABLE_ESLINT=1
-ENV NEXT_DISABLE_TYPECHECK=1
+COPY ${APP_SRC}/ ./
+
 RUN bun run build
 
-FROM node:20-alpine AS runner
+FROM ${BUN_IMAGE} AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
 RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/package.json ./package.json
-COPY --from=deps /app/node_modules ./node_modules
+COPY --chown=nextjs:nextjs --from=builder /app/public ./public
+COPY --chown=nextjs:nextjs --from=builder /app/.next/standalone ./
+COPY --chown=nextjs:nextjs --from=builder /app/.next/static ./.next/static
 
 RUN mkdir -p /data/uploads && chown -R nextjs:nextjs /data
 
 USER nextjs
 
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
 
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]

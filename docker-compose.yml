@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   caddy:
     build:
@@ -23,8 +21,8 @@ services:
 
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     environment:
       - NODE_ENV=production
@@ -41,8 +39,8 @@ services:
       - OPENROUTER_MODEL=${OPENROUTER_MODEL}
       - OPENROUTER_ROUTING_VARIANT=${OPENROUTER_ROUTING_VARIANT}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_SONNET_4_5_ID=${ANTHROPIC_SONNET_4_5_ID}
-      - ANTHROPIC_HAIKU_4_5_ID=${ANTHROPIC_HAIKU_4_5_ID}
+      - ANTHROPIC_SONNET_4_5_ID=${ANTHROPIC_SONNET_4_5_ID:-}
+      - ANTHROPIC_HAIKU_4_5_ID=${ANTHROPIC_HAIKU_4_5_ID:-}
     volumes:
       - ./data/sqlite:/data
     networks:
