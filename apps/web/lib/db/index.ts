@@ -95,6 +95,17 @@ export interface OAuthCredential {
   account_email?: string | null;
 }
 
+export interface GoogleOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  projectId?: string | null;
+  authUri?: string | null;
+  tokenUri?: string | null;
+  authProviderCertUrl?: string | null;
+  redirectUris?: string[];
+  javascriptOrigins?: string[];
+}
+
 // User operations
 export function createUser(email: string): User {
   const db = getDb();
@@ -489,6 +500,151 @@ export function deleteOAuthCredential(userId: string, provider: 'google' | 'noti
   const db = getDb();
   const stmt = db.prepare('DELETE FROM oauth_credentials WHERE user_id = ? AND provider = ?');
   stmt.run(userId, provider);
+}
+
+// Application settings helpers
+interface AppSettingRow {
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const GOOGLE_OAUTH_CONFIG_KEY = 'google_oauth_client';
+
+function upsertAppSetting(key: string, encryptedValue: string): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO app_settings (key, value, created_at, updated_at)
+    VALUES (?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `);
+  stmt.run(key, encryptedValue);
+}
+
+function getAppSettingRow(key: string): AppSettingRow | null {
+  try {
+    const db = getDb();
+    const stmt = db.prepare('SELECT key, value, created_at, updated_at FROM app_settings WHERE key = ?');
+    const row = stmt.get(key) as AppSettingRow | undefined;
+    return row || null;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (/no such table/i.test(error.message) || /unable to open database file/i.test(error.message))
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function deleteAppSettingRow(key: string): void {
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (/no such table/i.test(error.message) || /unable to open database file/i.test(error.message))
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export function saveGoogleOAuthConfig(config: GoogleOAuthConfig): void {
+  const payload = JSON.stringify(config);
+  const encrypted = encryptField(payload);
+  upsertAppSetting(GOOGLE_OAUTH_CONFIG_KEY, encrypted);
+}
+
+export function getGoogleOAuthConfig(): GoogleOAuthConfig | null {
+  const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+  if (!row) return null;
+  try {
+    const decrypted = decryptField(row.value);
+    return JSON.parse(decrypted) as GoogleOAuthConfig;
+  } catch (error) {
+    console.error('Failed to read Google OAuth config:', error);
+    return null;
+  }
+}
+
+export function getGoogleOAuthConfigWithMeta(): {
+  config: GoogleOAuthConfig;
+  createdAt: string;
+  updatedAt: string;
+} | null {
+  const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+  if (!row) return null;
+  try {
+    const decrypted = decryptField(row.value);
+    const config = JSON.parse(decrypted) as GoogleOAuthConfig;
+    return {
+      config,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  } catch (error) {
+    console.error('Failed to parse Google OAuth config with metadata:', error);
+    return null;
+  }
+}
+
+export function deleteGoogleOAuthConfig(): void {
+  deleteAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+}
+
+export interface GoogleOAuthConfigSummary {
+  configured: boolean;
+  source: 'database' | 'env' | null;
+  clientId?: string;
+  projectId?: string | null;
+  updatedAt?: string | null;
+  redirectUriCount?: number;
+  canDelete?: boolean;
+}
+
+export function getGoogleOAuthConfigSummary(): GoogleOAuthConfigSummary {
+  const stored = getGoogleOAuthConfigWithMeta();
+  if (stored) {
+    return {
+      configured: true,
+      source: 'database',
+      clientId: stored.config.clientId,
+      projectId: stored.config.projectId ?? null,
+      updatedAt: stored.updatedAt,
+      redirectUriCount: Array.isArray(stored.config.redirectUris)
+        ? stored.config.redirectUris.length
+        : 0,
+      canDelete: true,
+    };
+  }
+
+  const envClientId = process.env.GOOGLE_CLIENT_ID;
+  const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (envClientId && envClientSecret) {
+    return {
+      configured: true,
+      source: 'env',
+      clientId: envClientId,
+      projectId: process.env.GOOGLE_PROJECT_ID ?? null,
+      updatedAt: null,
+      canDelete: false,
+    };
+  }
+
+  return {
+    configured: false,
+    source: null,
+    canDelete: false,
+  };
+}
+
+export function isGoogleOAuthConfigured(): boolean {
+  return getGoogleOAuthConfigSummary().configured;
 }
 
 // Conversation Tools operations
