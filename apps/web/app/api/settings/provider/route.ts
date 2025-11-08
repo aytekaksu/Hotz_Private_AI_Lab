@@ -1,47 +1,21 @@
 import { NextRequest } from 'next/server';
-import { getUserById, getActiveAIProvider, setActiveAIProvider } from '@/lib/db';
+import { getActiveAIProvider, setActiveAIProvider } from '@/lib/db';
+import { ApiError, route, requireUser, requireString, readJson } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
-export async function GET(req: NextRequest) {
-  try {
-    const searchParams = req.nextUrl.searchParams;
-    const userId = searchParams.get('userId');
+export const GET = route((req: NextRequest) => {
+  const user = requireUser(req.nextUrl.searchParams.get('userId'));
+  return { provider: getActiveAIProvider(user.id) };
+});
 
-    if (!userId) {
-      return Response.json({ error: 'User ID required' }, { status: 400 });
-    }
-
-    const user = getUserById(userId);
-    if (!user) {
-      return Response.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    return Response.json({ provider: getActiveAIProvider(userId) });
-  } catch (error) {
-    console.error('Error loading provider preference:', error);
-    return Response.json({ error: 'Failed to load provider preference' }, { status: 500 });
+export const POST = route(async (req: NextRequest) => {
+  const body = await readJson<{ userId: string; provider: string }>(req);
+  const user = requireUser(body.userId);
+  const provider = requireString(body.provider, 'Provider').toLowerCase();
+  if (provider !== 'openrouter' && provider !== 'anthropic') {
+    throw new ApiError(400, 'User ID and valid provider required');
   }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const { userId, provider } = await req.json();
-
-    if (!userId || (provider !== 'openrouter' && provider !== 'anthropic')) {
-      return Response.json({ error: 'User ID and valid provider required' }, { status: 400 });
-    }
-
-    const user = getUserById(userId);
-    if (!user) {
-      return Response.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    setActiveAIProvider(userId, provider);
-
-    return Response.json({ success: true });
-  } catch (error) {
-    console.error('Error saving provider preference:', error);
-    return Response.json({ error: 'Failed to save provider preference' }, { status: 500 });
-  }
-}
+  setActiveAIProvider(user.id, provider as 'openrouter' | 'anthropic');
+  return { success: true };
+});
