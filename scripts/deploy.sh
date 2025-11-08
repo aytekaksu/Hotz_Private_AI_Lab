@@ -12,16 +12,16 @@ echo "[deploy] Ensuring workspace dependencies…"
 bun install >/dev/null 2>&1 || bun install
 
 echo "[deploy] Building web image…"
-docker compose build --no-cache web
+docker-compose build --no-cache web
 
 echo "[deploy] Recreating web service…"
-docker compose up -d web
+docker-compose up -d web
 
 echo "[deploy] Running DB migrations…"
 DATABASE_URL="file://$(pwd)/data/sqlite/app.db" bun run db:migrate || true
 
 echo "[deploy] Services status:"
-docker compose ps
+docker-compose ps
 
 echo "[deploy] Hitting health endpoint…"
 curl -fsS https://assistant.aytekaksu.com/api/health || true

@@ -25,6 +25,9 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 COPY --from=deps /app/node_modules ./node_modules
 COPY ${APP_SRC}/ ./
 
+# Ensure public directory exists (Next.js standalone build may not create it if empty)
+RUN mkdir -p ./public
+
 RUN --mount=type=cache,target=/app/.next/cache \
     bun run build
 
@@ -39,6 +42,7 @@ ENV NODE_ENV=production \
 
 RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001
 
+# Copy public directory (will exist after build)
 COPY --chown=nextjs:nextjs --from=builder /app/public ./public
 COPY --chown=nextjs:nextjs --from=builder /app/.next/standalone ./
 COPY --chown=nextjs:nextjs --from=builder /app/.next/static ./.next/static

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 // Theme toggle removed — app is permanently dark
 
@@ -33,15 +33,49 @@ export default function SettingsPage() {
   const [notionSecretSaved, setNotionSecretSaved] = useState(false);
   const [isRemovingNotionSecret, setIsRemovingNotionSecret] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+  const [googleClientConfigured, setGoogleClientConfigured] = useState(false);
+  const [googleClientSource, setGoogleClientSource] = useState<'database' | 'env' | null>(null);
+  const [googleClientIdSuffix, setGoogleClientIdSuffix] = useState<string | null>(null);
+  const [googleClientProjectId, setGoogleClientProjectId] = useState<string | null>(null);
+  const [googleClientUpdatedAt, setGoogleClientUpdatedAt] = useState<string | null>(null);
+  const [isUploadingGoogleClient, setIsUploadingGoogleClient] = useState(false);
+  const [isRemovingGoogleClient, setIsRemovingGoogleClient] = useState(false);
+  const [googleClientFeedback, setGoogleClientFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null);
   const [defaultModel, setDefaultModel] = useState('anthropic/claude-haiku-4.5');
   const [routingVariant, setRoutingVariant] = useState<'floor' | 'nitro' | ''>('floor');
   const [isSavingModel, setIsSavingModel] = useState(false);
   const [modelSaved, setModelSaved] = useState(false);
   const [provider, setProvider] = useState<'openrouter' | 'anthropic'>('openrouter');
 
+  const fetchGoogleClientConfig = useCallback(async () => {
+    try {
+      const response = await fetch('/api/settings/google-credentials');
+      if (!response.ok) {
+        throw new Error(`Unexpected status ${response.status}`);
+      }
+      const data = await response.json();
+      setGoogleClientConfigured(!!data?.configured);
+      setGoogleClientSource(
+        data?.source === 'database' || data?.source === 'env' ? data.source : null,
+      );
+      setGoogleClientIdSuffix(typeof data?.clientIdSuffix === 'string' ? data.clientIdSuffix : null);
+      setGoogleClientProjectId(typeof data?.projectId === 'string' ? data.projectId : null);
+      setGoogleClientUpdatedAt(typeof data?.updatedAt === 'string' ? data.updatedAt : null);
+    } catch (error) {
+      console.warn('Failed to load Google OAuth client configuration:', error);
+      setGoogleClientConfigured(false);
+      setGoogleClientSource(null);
+      setGoogleClientIdSuffix(null);
+      setGoogleClientProjectId(null);
+      setGoogleClientUpdatedAt(null);
+    }
+  }, []);
+
   const loadSettings = useCallback(async (uid: string) => {
     setIsLoading(true);
+    await fetchGoogleClientConfig();
     let notionSecretConfigured = false;
     try {
       const response = await fetch(`/api/settings/openrouter-key?userId=${uid}`);
@@ -143,6 +177,15 @@ export default function SettingsPage() {
           const googleData = await googleStatusRes.json();
           setGoogleConnected(!!googleData.connected);
           setGoogleEmail(typeof googleData.email === 'string' ? googleData.email : null);
+          if (typeof googleData.clientConfigured === 'boolean') {
+            setGoogleClientConfigured(googleData.clientConfigured);
+          }
+          if (googleData.configSource === 'database' || googleData.configSource === 'env') {
+            setGoogleClientSource(googleData.configSource);
+          }
+          if (typeof googleData.clientIdSuffix === 'string') {
+            setGoogleClientIdSuffix(googleData.clientIdSuffix);
+          }
         } else {
           setGoogleConnected(statusData.google_connected || false);
           setGoogleEmail(typeof statusData.google_email === 'string' ? statusData.google_email : null);
@@ -157,36 +200,75 @@ export default function SettingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [fetchGoogleClientConfig]);
 
   useEffect(() => {
     const initSettings = async () => {
-      const storedUserId = localStorage.getItem('userId');
-      if (!storedUserId) {
-        router.push('/');
-        return;
-      }
+      setInitError(null);
+      setIsLoading(true);
 
-      try {
-        const response = await fetch(`/api/users/${storedUserId}`);
-        if (!response.ok) {
-          localStorage.removeItem('userId');
-          router.push('/');
-          return;
+      const createDefaultUser = async (): Promise<string | null> => {
+        try {
+          const response = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'user@assistant.local' }),
+          });
+
+          if (!response.ok) {
+            console.error('Failed to create default user:', response.statusText);
+            return null;
+          }
+
+          const data = await response.json();
+          const newUserId = typeof data.user?.id === 'string' ? data.user.id : null;
+          if (newUserId) {
+            localStorage.setItem('userId', newUserId);
+          }
+          return newUserId;
+        } catch (error) {
+          console.error('Failed to create default user:', error);
+          return null;
         }
+      };
+
+      let storedUserId: string | null = null;
+      try {
+        storedUserId = localStorage.getItem('userId');
       } catch (error) {
-        console.error('Error verifying user:', error);
-        localStorage.removeItem('userId');
-        router.push('/');
+        console.error('Unable to access localStorage:', error);
+      }
+
+      let userId = storedUserId;
+
+      if (!userId) {
+        userId = await createDefaultUser();
+      } else {
+        try {
+          const response = await fetch(`/api/users/${userId}`);
+          if (!response.ok) {
+            localStorage.removeItem('userId');
+            userId = await createDefaultUser();
+          }
+        } catch (error) {
+          console.error('Error verifying user:', error);
+          localStorage.removeItem('userId');
+          userId = await createDefaultUser();
+        }
+      }
+
+      if (!userId) {
+        setInitError('Unable to initialize the workspace. Please reload the page.');
+        setIsLoading(false);
         return;
       }
 
-      setUserId(storedUserId);
-      await loadSettings(storedUserId);
+      setUserId(userId);
+      await loadSettings(userId);
     };
 
     initSettings();
-  }, [router, loadSettings]);
+  }, [loadSettings]);
 
   const saveOpenRouterKey = async () => {
     if (hasExistingKey) return;
@@ -383,6 +465,11 @@ export default function SettingsPage() {
   };
 
   const connectGoogle = () => {
+    if (!googleClientConfigured) {
+      setGoogleClientFeedback({ type: 'error', message: 'Upload Google client credentials first' });
+      setTimeout(() => setGoogleClientFeedback(null), 4000);
+      return;
+    }
     window.location.href = `/api/auth/google?userId=${userId}`;
   };
 
@@ -406,6 +493,82 @@ export default function SettingsPage() {
   const reconnectGoogle = () => {
     if (confirm('Reconnect your Google account? This replaces the current connection.')) {
       connectGoogle();
+    }
+  };
+
+  const uploadGoogleClientFile = async (file: File) => {
+    setGoogleClientFeedback(null);
+    setIsUploadingGoogleClient(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/settings/google-credentials', {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to save Google credentials');
+      }
+      setGoogleClientFeedback({ type: 'success', message: 'Google OAuth client saved ✓' });
+      setTimeout(() => setGoogleClientFeedback(null), 4000);
+      await fetchGoogleClientConfig();
+    } catch (error) {
+      console.error('Failed to upload Google client secret JSON:', error);
+      setGoogleClientFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to upload Google credentials',
+      });
+    } finally {
+      setIsUploadingGoogleClient(false);
+    }
+  };
+
+  const handleGoogleClientFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await uploadGoogleClientFile(file);
+    }
+    event.target.value = '';
+  };
+
+  const removeGoogleClientCredentials = async () => {
+    if (googleClientSource === 'env') {
+      setGoogleClientFeedback({
+        type: 'error',
+        message: 'Google OAuth client is configured via environment variables and cannot be removed here.',
+      });
+      setTimeout(() => setGoogleClientFeedback(null), 4000);
+      return;
+    }
+
+    if (!googleClientConfigured) {
+      return;
+    }
+
+    if (!confirm('Remove the stored Google OAuth client credentials? Existing connections will stop working until new credentials are uploaded.')) {
+      return;
+    }
+
+    setGoogleClientFeedback(null);
+    setIsRemovingGoogleClient(true);
+    try {
+      const response = await fetch('/api/settings/google-credentials', { method: 'DELETE' });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to remove Google credentials');
+      }
+      setGoogleClientFeedback({ type: 'success', message: 'Google OAuth client removed' });
+      setTimeout(() => setGoogleClientFeedback(null), 4000);
+      await fetchGoogleClientConfig();
+    } catch (error) {
+      console.error('Failed to delete Google credentials:', error);
+      setGoogleClientFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to remove Google credentials',
+      });
+    } finally {
+      setIsRemovingGoogleClient(false);
     }
   };
 
@@ -489,6 +652,34 @@ export default function SettingsPage() {
   const notionSaveLabel = hasNotionSecret ? 'Update secret' : 'Save secret';
   const notionSaveButtonText = isSavingNotionSecret ? 'Saving…' : notionSaveLabel;
   const notionRemoveButtonText = isRemovingNotionSecret ? 'Removing…' : 'Remove secret';
+  const googleClientReadOnly = googleClientSource === 'env';
+  const formattedGoogleClientUpdatedAt = googleClientUpdatedAt
+    ? new Date(googleClientUpdatedAt).toLocaleString()
+    : null;
+
+  if (initError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background text-muted">
+        <p className="mb-4 max-w-md text-center text-sm text-foreground/80">{initError}</p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+          >
+            Reload page
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="rounded-full border border-border px-4 py-2 text-sm text-foreground/80 transition hover:text-foreground"
+          >
+            Back to chat
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -551,13 +742,20 @@ export default function SettingsPage() {
                     Connected as <span className="font-mono text-foreground">{googleEmail}</span>
                   </p>
                 )}
+                {!googleClientConfigured && (
+                  <p className="mt-3 text-xs text-amber-500">
+                    Upload your Google client_secret.json to enable workspace authentication.
+                  </p>
+                )}
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   {googleConnected ? (
                     <>
                       <button
                         type="button"
                         onClick={reconnectGoogle}
-                        className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+                        disabled={!googleClientConfigured}
+                        title={!googleClientConfigured ? 'Upload Google client credentials first' : undefined}
+                        className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Reconnect
                       </button>
@@ -573,11 +771,93 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={connectGoogle}
-                      className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg"
+                      disabled={!googleClientConfigured || isUploadingGoogleClient}
+                      title={!googleClientConfigured ? 'Upload Google client credentials first' : undefined}
+                      className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Connect Google
                     </button>
                   )}
+                </div>
+                <div className="mt-5 rounded-xl border border-border/60 bg-background/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.25em] text-muted">OAuth client</p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {googleClientConfigured ? 'Credentials on file' : 'Not configured'}
+                      </p>
+                    </div>
+                    {googleClientIdSuffix && (
+                      <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-[11px] text-muted">
+                        Client •••{googleClientIdSuffix}
+                      </span>
+                    )}
+                  </div>
+                  {googleClientProjectId && (
+                    <p className="mt-2 text-xs text-muted">
+                      Project ID:{' '}
+                      <span className="font-mono text-foreground">{googleClientProjectId}</span>
+                    </p>
+                  )}
+                  {formattedGoogleClientUpdatedAt && (
+                    <p className="mt-1 text-xs text-muted">Updated {formattedGoogleClientUpdatedAt}</p>
+                  )}
+                  <p className="mt-2 text-xs text-muted">
+                    Source:{' '}
+                    {googleClientReadOnly
+                      ? 'environment variables'
+                      : googleClientConfigured
+                      ? 'encrypted in database'
+                      : 'not configured'}
+                  </p>
+                  {googleClientFeedback && (
+                    <p
+                      className={`mt-2 text-xs ${
+                        googleClientFeedback.type === 'error' ? 'text-red-400' : 'text-emerald-400'
+                      }`}
+                    >
+                      {googleClientFeedback.message}
+                    </p>
+                  )}
+                  {googleClientReadOnly && (
+                    <p className="mt-2 text-xs text-muted">
+                      Upload a new JSON file to override the environment configuration at runtime.
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-full border border-border bg-background/60 px-4 py-2 text-xs text-foreground transition ${
+                        isUploadingGoogleClient ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-accent'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="application/json"
+                        onChange={handleGoogleClientFileChange}
+                        disabled={isUploadingGoogleClient}
+                      />
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                        <path
+                          d="M10 4.167v11.666M4.167 10h11.666"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      {isUploadingGoogleClient ? 'Uploading…' : 'Upload client_secret.json'}
+                    </label>
+                    {googleClientConfigured && !googleClientReadOnly && (
+                      <button
+                        type="button"
+                        onClick={removeGoogleClientCredentials}
+                        disabled={isRemovingGoogleClient}
+                        className="text-sm text-muted transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isRemovingGoogleClient ? 'Removing…' : 'Remove credentials'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="rounded-2xl border border-border bg-surface/80 p-4">
@@ -652,7 +932,7 @@ export default function SettingsPage() {
                   <h2 className="text-lg font-semibold">Provider &amp; Model</h2>
                   <p className="mt-1 text-xs text-muted">Choose which provider powers chats and set the default model for new conversations.</p>
                 </div>
-                {modelSaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
+                  {modelSaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
               </div>
               <div className="mt-4 flex flex-1 flex-col justify-evenly">
                 <div className="flex flex-wrap items-center gap-3">

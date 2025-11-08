@@ -259,6 +259,21 @@ const migrations = [
     setVersion(7);
     console.log('✓ Migration 7 completed');
   },
+
+  // Migration 8: Application settings key-value store
+  function migration8() {
+    console.log('Running migration 8: App settings table');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    setVersion(8);
+    console.log('✓ Migration 8 completed');
+  },
 ];
 
 // Run migrations
