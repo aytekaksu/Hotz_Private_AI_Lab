@@ -67,6 +67,17 @@ fi
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
+BUN_BIN="$BUN_INSTALL/bin/bun"
+if [[ ! -x "$BUN_BIN" ]]; then
+  echo "[install] ERROR: Bun binary not found at $BUN_BIN" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "[install] Ensuring Bun is available system-wide…"
+  sudo install -m 0755 "$BUN_BIN" /usr/local/bin/bun
+fi
+
 echo "[install] Cloning Hotz_Private_AI_Lab into $APP_DIR…"
 rm -rf "$APP_DIR"
 if [[ -n "${GITHUB_USER:-}" && -n "${GITHUB_PAT:-}" ]]; then
