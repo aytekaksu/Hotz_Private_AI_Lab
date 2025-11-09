@@ -4,66 +4,70 @@ import { tools, toolMetadata, type ToolName } from '@/lib/tools/definitions';
 
 export const runtime = 'nodejs';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+type AccessResult =
+  | { response: Response }
+  | { userId: string; conversationId: string };
+
+const ensureConversationAccess = (conversationId: string, userId: string | null): AccessResult => {
+  if (!userId) {
+    return { response: Response.json({ error: 'User ID required' }, { status: 400 }) };
+  }
+
+  const conversation = getConversationById(conversationId);
+  if (!conversation) {
+    return { response: Response.json({ error: 'Conversation not found' }, { status: 404 }) };
+  }
+
+  if (conversation.user_id !== userId) {
+    return { response: Response.json({ error: 'Unauthorized' }, { status: 403 }) };
+  }
+
+  return { userId, conversationId };
+};
+
+const authErrorMessage = (provider: string | null | undefined) =>
+  provider === 'notion'
+    ? 'Notion integration secret not configured. Please add it in Settings.'
+    : provider
+      ? `${provider} account not connected. Please connect in Settings.`
+      : 'Required account not connected. Please connect in Settings.';
+
+const isProviderConnected = (
+  userId: string,
+  provider: 'google' | 'notion' | null | undefined,
+  cache?: Map<string, boolean>,
+): boolean => {
+  if (!provider) return true;
+  if (cache?.has(provider)) {
+    return cache.get(provider)!;
+  }
+  let connected = !!getOAuthCredential(userId, provider);
+  if (provider === 'notion') {
+    connected = connected || !!process.env.NOTION_INTEGRATION_SECRET;
+  }
+  cache?.set(provider, connected);
+  return connected;
+};
+
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const conversationId = params.id;
-    const searchParams = req.nextUrl.searchParams;
-    const userId = searchParams.get('userId');
+    const result = ensureConversationAccess(params.id, req.nextUrl.searchParams.get('userId'));
+    if ('response' in result) return result.response;
 
-    if (!userId) {
-      return Response.json({ error: 'User ID required' }, { status: 400 });
-    }
+    const enabledMap = new Map(getConversationTools(result.conversationId).map((t) => [t.tool_name, t.enabled]));
+    const authCache = new Map<string, boolean>();
 
-    // Verify conversation exists and belongs to user
-    const conversation = getConversationById(conversationId);
-    if (!conversation) {
-      return Response.json({ error: 'Conversation not found' }, { status: 404 });
-    }
-    
-    if (conversation.user_id !== userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 403 });
-    }
-
-    // Get enabled tools for this conversation
-    const conversationTools = getConversationTools(conversationId);
-    const enabledToolsMap = new Map(conversationTools.map(t => [t.tool_name, t.enabled]));
-
-    // Check OAuth connections
-    const googleConnected = !!getOAuthCredential(userId, 'google');
-    const notionConnected =
-      !!getOAuthCredential(userId, 'notion') || !!process.env.NOTION_INTEGRATION_SECRET;
-
-    // Build tools list with status (exclude System category tools)
-    const toolsList = Object.keys(tools)
-      .filter((toolName) => {
-        const metadata = toolMetadata[toolName as ToolName];
-        return metadata.category !== 'System'; // Hide system tools from UI
-      })
-      .map((toolName) => {
-        const metadata = toolMetadata[toolName as ToolName];
-        const enabled = enabledToolsMap.get(toolName) || false;
-      
-      // Check if auth is available
-      let authConnected = true;
-      if (metadata.requiresAuth) {
-        if (metadata.authProvider === 'google') {
-          authConnected = googleConnected;
-        } else if (metadata.authProvider === 'notion') {
-          authConnected = notionConnected;
-        }
-      }
-
-      const available = !metadata.requiresAuth || authConnected;
-
+    const toolsList = (Object.entries(toolMetadata) as Array<[ToolName, (typeof toolMetadata)[ToolName]]>)
+      .filter(([, metadata]) => metadata.category !== 'System')
+      .map(([toolName, metadata]) => {
+        const authConnected = isProviderConnected(result.userId, metadata.authProvider, authCache);
+        const available = !metadata.requiresAuth || authConnected;
         return {
           toolName,
           displayName: metadata.displayName,
           category: metadata.category,
-          description: tools[toolName as ToolName].description,
-          enabled,
+          description: tools[toolName].description,
+          enabled: enabledMap.get(toolName) || false,
           available,
           requiresAuth: metadata.requiresAuth,
           authProvider: metadata.authProvider,
@@ -74,72 +78,34 @@ export async function GET(
     return Response.json({ tools: toolsList });
   } catch (error) {
     console.error('Error fetching tools:', error);
-    return Response.json(
-      { error: 'Failed to fetch tools' },
-      { status: 500 }
-    );
+    return Response.json({ error: 'Failed to fetch tools' }, { status: 500 });
   }
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const conversationId = params.id;
-    const { userId, toolName, enabled } = await req.json();
-
-    if (!userId) {
-      return Response.json({ error: 'User ID required' }, { status: 400 });
-    }
+    const body = await req.json();
+    const { toolName, enabled } = body ?? {};
+    const result = ensureConversationAccess(params.id, body?.userId ?? null);
+    if ('response' in result) return result.response;
 
     if (!toolName || typeof enabled !== 'boolean') {
       return Response.json({ error: 'Tool name and enabled status required' }, { status: 400 });
     }
 
-    // Verify conversation exists and belongs to user
-    const conversation = getConversationById(conversationId);
-    if (!conversation) {
-      return Response.json({ error: 'Conversation not found' }, { status: 404 });
-    }
-    
-    if (conversation.user_id !== userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 403 });
-    }
-
-    // Verify tool exists
     if (!(toolName in tools)) {
       return Response.json({ error: 'Invalid tool name' }, { status: 400 });
     }
 
-    // Check if tool requires auth and if user has it
     const metadata = toolMetadata[toolName as ToolName];
-    if (metadata.requiresAuth && enabled) {
-      let authConnected = !!getOAuthCredential(userId, metadata.authProvider!);
-      if (metadata.authProvider === 'notion') {
-        authConnected = authConnected || !!process.env.NOTION_INTEGRATION_SECRET;
-      }
-      if (!authConnected) {
-        const errorMessage =
-          metadata.authProvider === 'notion'
-            ? 'Notion integration secret not configured. Please add it in Settings.'
-            : `${metadata.authProvider} account not connected. Please connect in Settings.`;
-        return Response.json(
-          { error: errorMessage },
-          { status: 400 }
-        );
-      }
+    if (metadata.requiresAuth && enabled && !isProviderConnected(result.userId, metadata.authProvider)) {
+      return Response.json({ error: authErrorMessage(metadata.authProvider) }, { status: 400 });
     }
 
-    // Update tool status
-    setConversationToolEnabled(conversationId, toolName, enabled);
-
+    setConversationToolEnabled(result.conversationId, toolName, enabled);
     return Response.json({ success: true });
   } catch (error) {
     console.error('Error updating tool:', error);
-    return Response.json(
-      { error: 'Failed to update tool' },
-      { status: 500 }
-    );
+    return Response.json({ error: 'Failed to update tool' }, { status: 500 });
   }
 }
