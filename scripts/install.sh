@@ -43,9 +43,9 @@ APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 echo "[install] Updating apt package index…"
-sudo apt-get update -y >/dev/null
+sudo -E apt-get update -y >/dev/null
 echo "[install] Installing base packages (git, curl, ca-certificates, unzip)…"
-sudo apt-get install -y git curl ca-certificates unzip >/dev/null
+sudo -E apt-get install -y git curl ca-certificates unzip >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[install] Docker not found; installing via get.docker.com…"
