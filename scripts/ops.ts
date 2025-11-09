@@ -25,7 +25,43 @@ const run = async (cmd: string[], options: RunOptions = {}): Promise<number> => 
   return exitCode;
 };
 
-const compose = (args: string[], options?: RunOptions) => run(['docker', 'compose', ...args], options);
+let composeCommand: string[] | null = null;
+
+const detectComposeCommand = async (): Promise<string[]> => {
+  if (composeCommand) return composeCommand;
+
+  const tries: string[][] = [
+    ['docker', 'compose'],
+    ['docker-compose'],
+  ];
+
+  const checkCandidate = async (candidate: string[]) => {
+    const proc = Bun.spawn({
+      cmd: [...candidate, 'version'],
+      cwd: repoRoot,
+      stdout: 'ignore',
+      stderr: 'ignore',
+      stdin: 'ignore',
+    });
+    return (await proc.exited) === 0;
+  };
+
+  for (const candidate of tries) {
+    if (await checkCandidate(candidate)) {
+      composeCommand = candidate;
+      return composeCommand;
+    }
+  }
+
+  throw new Error(
+    'Docker Compose is not installed. Install either the docker-compose plugin or the legacy docker-compose binary.',
+  );
+};
+
+const compose = async (args: string[], options?: RunOptions) => {
+  const cmd = await detectComposeCommand();
+  return run([...cmd, ...args], options);
+};
 
 const formatDuration = (ms: number) => (ms / 1000).toFixed(2);
 
