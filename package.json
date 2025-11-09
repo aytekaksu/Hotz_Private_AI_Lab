@@ -16,6 +16,7 @@
     "deploy": "bun run scripts/deploy.ts",
     "backup": "bun run scripts/backup.ts",
     "restore": "bun run scripts/restore.ts",
-    "provision:tls": "bun run scripts/provision-tls.ts"
+    "provision:tls": "bun run scripts/provision-tls.ts",
+    "bootstrap": "bun run scripts/bootstrap.ts"
   }
 }

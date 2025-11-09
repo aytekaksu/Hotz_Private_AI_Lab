@@ -91,6 +91,7 @@ All operational helpers now live under `scripts/*.ts` and are executed with `bun
 - `bun run restore /path/to/backup.tar.gz` — shuts down compose services, extracts the tarball at `/`, and brings the stack back up.
 - `bun run provision:tls` — rewrites `Caddyfile` for the current `INTERNAL_DOMAIN`/`ACME_EMAIL`, optionally wiring the Cloudflare DNS plugin, then restarts `caddy`.
 - `bun run setup:buildx` — installs or refreshes the Docker Buildx CLI plugin; `bun run deploy` calls this automatically when needed.
+- `bun run bootstrap <domain> [acme-email]` — post-clone convenience helper that updates `.env`, installs workspace deps, ensures Buildx, runs the deploy pipeline, and restarts `caddy` for the provided domain (falls back to `ACME_EMAIL` from the environment when the optional argument is omitted).
 
 ## Logs & Troubleshooting
 

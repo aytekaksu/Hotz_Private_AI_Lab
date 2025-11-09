@@ -94,6 +94,41 @@ const healthCheck = async (logger: Logger) => {
   }
 };
 
+const envPath = path.join(repoRoot, '.env');
+const envExamplePath = path.join(repoRoot, '.env.example');
+
+const ensureEnvFile = async () => {
+  if (await pathExists(envPath)) return;
+  if (await pathExists(envExamplePath)) {
+    await fs.copyFile(envExamplePath, envPath);
+  } else {
+    await fs.writeFile(envPath, '');
+  }
+};
+
+const appendLine = (content: string, line: string) => {
+  const trimmed = content.replace(/\s*$/, '');
+  const suffix = trimmed.length === 0 ? '' : '\n';
+  return `${trimmed}${suffix}${line}\n`;
+};
+
+const upsertEnvValues = async (entries: Record<string, string>) => {
+  await ensureEnvFile();
+  let content = await fs.readFile(envPath, 'utf8');
+  for (const [key, value] of Object.entries(entries)) {
+    const line = `${key}=${value}`;
+    const pattern = new RegExp(`^${key}=.*$`, 'm');
+    content = pattern.test(content) ? content.replace(pattern, line) : appendLine(content, line);
+  }
+  await fs.writeFile(envPath, content.replace(/\r\n/g, '\n'));
+};
+
+const normalizeDomain = (raw: string) => {
+  const input = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+  const url = new URL(input);
+  return { origin: url.origin, host: url.hostname };
+};
+
 export async function deployCli(args: string[]): Promise<void> {
   const { clean, help } = parseDeployArgs(args);
   if (help) {
@@ -322,4 +357,34 @@ export async function setupBuildxCli(): Promise<void> {
     logger.error(`Failed to install Docker Buildx: ${(error as Error).message}`);
     process.exitCode = 1;
   }
+}
+
+export async function bootstrapCli(args: string[]): Promise<void> {
+  const usage = 'Usage: bun run bootstrap <domain> [acme-email]';
+  const domainArg = args[0];
+  if (!domainArg || domainArg === '--help' || domainArg === '-h') {
+    console.log(usage);
+    process.exit(domainArg ? 0 : 1);
+  }
+  const email = args[1] || Bun.env.ACME_EMAIL || '';
+  if (!email) {
+    throw new Error('ACME email required (set ACME_EMAIL or pass as second argument).');
+  }
+
+  const { origin, host } = normalizeDomain(domainArg);
+  await upsertEnvValues({
+    APP_PUBLIC_URL: origin,
+    NEXTAUTH_URL: origin,
+    INTERNAL_DOMAIN: host,
+    ACME_EMAIL: email,
+  });
+
+  process.env.HEALTHCHECK_URL = `${origin}/api/health`;
+
+  const logger = createLogger('bootstrap');
+  await run(['bun', 'install']);
+  await setupBuildxCli();
+  await deployCli([]);
+  await compose(['up', '-d', 'caddy']);
+  logger.success(`Deployment complete at ${origin}`);
 }
