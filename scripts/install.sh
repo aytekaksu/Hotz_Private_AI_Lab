@@ -38,7 +38,7 @@ APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -y >/dev/null
-sudo apt-get install -y git curl ca-certificates >/dev/null
+sudo apt-get install -y git curl ca-certificates unzip >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[install] Docker not found; installing via get.docker.com…"
