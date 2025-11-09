@@ -1,7 +1,7 @@
 ## Deployment Performance Snapshot – 2025-11-09
 
 **Command:** `bun run deploy`  
-**Total time:** 104.26s (see `scripts/deploy.sh` timing output)
+**Total time:** 104.26s (see `scripts/deploy.ts` timing output)
 
 | Step                              | Duration |
 |-----------------------------------|---------:|

@@ -9,9 +9,9 @@ const baseUrl = (process.env.NEXTAUTH_URL || process.env.APP_PUBLIC_URL || 'http
 const SETTINGS_URL = `${baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl}/settings`;
 const redirect = (query: string) => Response.redirect(`${SETTINGS_URL}?${query}`);
 
-const loadOAuthClient = () => {
+const loadOAuthClient = async () => {
   try {
-    return createBaseGoogleOAuth2Client().client;
+    return (await createBaseGoogleOAuth2Client()).client;
   } catch (error) {
     console.error('Google OAuth client configuration missing:', error);
     throw new Error('GOOGLE_CLIENT_NOT_CONFIGURED');
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const oauth2Client = loadOAuthClient();
+    const oauth2Client = await loadOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
     if (!tokens.access_token) {
       throw new Error('No access token received');
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     const accountEmail = await fetchAccountEmail(oauth2Client);
     const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
 
-    storeOAuthCredential(
+    await storeOAuthCredential(
       userId,
       'google',
       tokens.access_token,

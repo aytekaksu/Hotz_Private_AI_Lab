@@ -5,11 +5,11 @@ import { route, requireUser } from '@/lib/api';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export const GET = route((req: NextRequest) => {
+export const GET = route(async (req: NextRequest) => {
   const user = requireUser(req.nextUrl.searchParams.get('userId'));
-  const summary = getGoogleOAuthConfigSummary();
+  const summary = await getGoogleOAuthConfigSummary();
   const clientIdSuffix = summary.clientId ? summary.clientId.slice(-8) : null;
-  const credential = getDecryptedOAuthCredential(user.id, 'google');
+  const credential = await getDecryptedOAuthCredential(user.id, 'google');
   if (credential) {
     return {
       connected: true,

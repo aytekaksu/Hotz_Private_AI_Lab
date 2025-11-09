@@ -31,8 +31,8 @@ const readEnvConfig = (): GoogleOAuthConfig | null => {
   };
 };
 
-const resolveGoogleOAuthConfig = (): GoogleOAuthConfig | null =>
-  getGoogleOAuthConfig() ?? readEnvConfig();
+const resolveGoogleOAuthConfig = async (): Promise<GoogleOAuthConfig | null> =>
+  (await getGoogleOAuthConfig()) ?? readEnvConfig();
 
 const resolveRedirectBase = (): string => {
   const base = (process.env.APP_PUBLIC_URL || process.env.NEXTAUTH_URL || '').trim();
@@ -42,7 +42,7 @@ const resolveRedirectBase = (): string => {
   return base.endsWith('/') ? base.slice(0, -1) : base;
 };
 
-const persistTokens = (
+const persistTokens = async (
   userId: string,
   tokens: TokenPayload,
   fallback: { refreshToken?: string; scope?: string; accountEmail?: string | null }
@@ -51,7 +51,7 @@ const persistTokens = (
     return false;
   }
   const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
-  storeOAuthCredential(
+  await storeOAuthCredential(
     userId,
     'google',
     tokens.access_token,
@@ -63,28 +63,28 @@ const persistTokens = (
   return true;
 };
 
-export const resolveGoogleOAuthConfigStrict = (): GoogleOAuthConfig => {
-  const config = resolveGoogleOAuthConfig();
+export const resolveGoogleOAuthConfigStrict = async (): Promise<GoogleOAuthConfig> => {
+  const config = await resolveGoogleOAuthConfig();
   if (!config) {
     throw new Error('Google OAuth client not configured. Upload credentials in Settings.');
   }
   return config;
 };
 
-export function createBaseGoogleOAuth2Client() {
-  const config = resolveGoogleOAuthConfigStrict();
+export async function createBaseGoogleOAuth2Client() {
+  const config = await resolveGoogleOAuthConfigStrict();
   const redirectUri = `${resolveRedirectBase()}/api/auth/google/callback`;
   const client = new google.auth.OAuth2(config.clientId, config.clientSecret, redirectUri);
   return { client, config, redirectUri };
 }
 
 export async function getGoogleOAuth2Client(userId: string) {
-  const credentials = getDecryptedOAuthCredential(userId, 'google');
+  const credentials = await getDecryptedOAuthCredential(userId, 'google');
   if (!credentials) {
     throw new Error('Google account not connected. Please connect in Settings.');
   }
 
-  const { client } = createBaseGoogleOAuth2Client();
+  const { client } = await createBaseGoogleOAuth2Client();
   client.setCredentials({
     access_token: credentials.accessToken,
     refresh_token: credentials.refreshToken,
@@ -100,22 +100,24 @@ export async function getGoogleOAuth2Client(userId: string) {
 
   client.on('tokens', (tokens) => {
     console.log('Google tokens refreshed for user:', userId);
-    if (persistTokens(userId, tokens, fallback)) {
-      if (tokens.refresh_token) {
-        fallback.refreshToken = tokens.refresh_token;
+    void (async () => {
+      if (await persistTokens(userId, tokens, fallback)) {
+        if (tokens.refresh_token) {
+          fallback.refreshToken = tokens.refresh_token;
+        }
+        if (tokens.scope) {
+          fallback.scope = tokens.scope;
+        }
       }
-      if (tokens.scope) {
-        fallback.scope = tokens.scope;
-      }
-    }
+    })();
   });
 
   return client;
 }
 
-export const isGoogleConnected = (userId: string): boolean => {
+export const isGoogleConnected = async (userId: string): Promise<boolean> => {
   try {
-    return !!getDecryptedOAuthCredential(userId, 'google')?.accessToken;
+    return !!(await getDecryptedOAuthCredential(userId, 'google'))?.accessToken;
   } catch {
     return false;
   }
@@ -124,7 +126,7 @@ export const isGoogleConnected = (userId: string): boolean => {
 export async function refreshGoogleTokens(userId: string): Promise<boolean> {
   try {
     const oauth2Client = await getGoogleOAuth2Client(userId);
-    const existing = getDecryptedOAuthCredential(userId, 'google');
+    const existing = await getDecryptedOAuthCredential(userId, 'google');
     if (!existing) return false;
     const { credentials } = await oauth2Client.refreshAccessToken();
     return persistTokens(userId, credentials, existing);

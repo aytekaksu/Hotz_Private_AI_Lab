@@ -15,9 +15,9 @@ const fallbackGoogleSummary = (): GoogleOAuthConfigSummary => ({
   canDelete: false,
 });
 
-const safeGoogleSummary = (): GoogleOAuthConfigSummary => {
+const safeGoogleSummary = async (): Promise<GoogleOAuthConfigSummary> => {
   try {
-    return getGoogleOAuthConfigSummary();
+    return await getGoogleOAuthConfigSummary();
   } catch (error) {
     console.warn('Failed to load Google OAuth configuration summary:', error);
     return fallbackGoogleSummary();
@@ -87,10 +87,10 @@ const userConnections = (db: ReturnType<typeof getDb>, userId: string | null) =>
   return { googleConnected, googleEmail, notionConnected };
 };
 
-export const GET = route((req: NextRequest) => {
+export const GET = route(async (req: NextRequest) => {
   const userId = req.nextUrl.searchParams.get('userId');
   const db = getDb();
-  const googleSummary = safeGoogleSummary();
+  const googleSummary = await safeGoogleSummary();
   const statsWindow = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { googleConnected, googleEmail, notionConnected } = userConnections(db, userId);
 

@@ -11,9 +11,9 @@ const defaultGoogleSummary = () => ({
   source: process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? 'env' : null,
 });
 
-const safeGoogleSummary = () => {
+const safeGoogleSummary = async () => {
   try {
-    return getGoogleOAuthConfigSummary();
+    return await getGoogleOAuthConfigSummary();
   } catch (error) {
     console.warn('Failed to load Google OAuth configuration summary:', error);
     return defaultGoogleSummary();
@@ -62,8 +62,8 @@ const checkOptionalOAuth = (googleSummary: { configured: boolean; source: string
   return optional;
 };
 
-export const GET = route((_req: NextRequest) => {
-  const googleSummary = safeGoogleSummary();
+export const GET = route(async (_req: NextRequest) => {
+  const googleSummary = await safeGoogleSummary();
   const dbStatus = checkDatabase();
   const envStatus = checkEnvironment();
   const optional = checkOptionalOAuth(googleSummary);
@@ -85,4 +85,3 @@ export const GET = route((_req: NextRequest) => {
 
   return json(payload, healthy ? 200 : 503);
 });
-

@@ -67,7 +67,7 @@ bun run deploy            # bun run deploy --clean to disable Docker cache
 - Prints `docker compose ps` and performs a lightweight `/api/health` check
 - Uses Bun to install workspace dependencies before building; clean builds remain available with `--clean`
 
-Script location: `scripts/deploy.sh`
+Script location: `scripts/deploy.ts` (TypeScript Bun CLI invoked via `bun run deploy`)
 
 Prereqs
 - Bun 1.3.2+ installed on the host (deploy script and tooling run with Bun)
@@ -82,6 +82,15 @@ DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db bun run db:migrate
 ```
 
 > **Note:** Always run the migration command above immediately after pulling new code (and before testing OAuth integrations). Missing schema updates—such as the `account_email` column on `oauth_credentials`—can silently break Google Calendar/Tasks tool calls even when tokens refresh successfully.
+
+### Bun Automation Scripts
+All operational helpers now live under `scripts/*.ts` and are executed with `bun run <script>`:
+
+- `bun run deploy` — orchestrates Buildx image builds, service restarts, migrations, and health checks.
+- `bun run backup` — stops services, snapshots `data/sqlite` + `.env`, restarts containers, and prunes backups older than 7 days (configurable via `BACKUP_DIR`/`BACKUP_RETENTION_DAYS`).
+- `bun run restore /path/to/backup.tar.gz` — shuts down compose services, extracts the tarball at `/`, and brings the stack back up.
+- `bun run provision:tls` — rewrites `Caddyfile` for the current `INTERNAL_DOMAIN`/`ACME_EMAIL`, optionally wiring the Cloudflare DNS plugin, then restarts `caddy`.
+- `bun run setup:buildx` — installs or refreshes the Docker Buildx CLI plugin; `bun run deploy` calls this automatically when needed.
 
 ## Logs & Troubleshooting
 
@@ -105,7 +114,9 @@ Common issues:
 
 ## Backups
 
-SQLite lives in `./data/sqlite` (mounted into the container). Include this directory in your backup routine. The `deployment-backup/*` folder contains previously captured deployment info; do not rely on it as a live backup.
+SQLite lives in `./data/sqlite` (mounted into the container). Include this directory in your backup routine. Use `bun run backup` (driven by `scripts/backup.ts`) to automate the process: it stops services, archives `data/sqlite` and `.env` into `/opt/backups/ai-assistant/backup_<timestamp>.tar.gz` by default, restarts the stack, and trims backups older than 7 days. Restore from any generated archive with `bun run restore /path/to/backup_<timestamp>.tar.gz`.
+
+The `deployment-backup/*` folder contains previously captured deployment info; do not rely on it as a live backup.
 
 ## Security
 - Secrets encrypted at rest (AES‑256‑GCM) using `APP_ENCRYPTION_KEY`.

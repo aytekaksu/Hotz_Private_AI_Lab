@@ -11,8 +11,11 @@
     "build": "cd apps/web && bun run build",
     "start": "cd apps/web && bun run start",
     "db:migrate": "cd apps/web && bun run db:migrate",
-    "setup:buildx": "bash scripts/setup-buildx.sh",
+    "setup:buildx": "bun run scripts/setup-buildx.ts",
     "verify": "cd apps/web && bun run verify",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bun run scripts/deploy.ts",
+    "backup": "bun run scripts/backup.ts",
+    "restore": "bun run scripts/restore.ts",
+    "provision:tls": "bun run scripts/provision-tls.ts"
   }
 }

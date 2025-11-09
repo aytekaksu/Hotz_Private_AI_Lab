@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Copy API key to target user
-    updateUserOpenRouterKey(userId, sourceUser.openrouter_api_key);
+    await updateUserOpenRouterKey(userId, sourceUser.openrouter_api_key);
     
     return Response.json({ success: true });
   } catch (error) {

@@ -133,9 +133,9 @@ export function getUserByEmail(email: string): User | null {
   return user || null;
 }
 
-export function updateUserOpenRouterKey(userId: string, apiKey: string): void {
+export async function updateUserOpenRouterKey(userId: string, apiKey: string): Promise<void> {
   const db = getDb();
-  const encryptedKey = encryptField(apiKey);
+  const encryptedKey = await encryptField(apiKey);
   const stmt = db.prepare(`
     UPDATE users 
     SET openrouter_api_key = ?, updated_at = datetime('now')
@@ -144,20 +144,20 @@ export function updateUserOpenRouterKey(userId: string, apiKey: string): void {
   stmt.run(encryptedKey, userId);
 }
 
-export function getUserOpenRouterKey(userId: string): string | null {
+export async function getUserOpenRouterKey(userId: string): Promise<string | null> {
   const user = getUserById(userId);
   if (!user?.openrouter_api_key) return null;
   try {
-    return decryptField(user.openrouter_api_key);
+    return await decryptField(user.openrouter_api_key);
   } catch (error) {
     console.error('Failed to decrypt OpenRouter key:', error);
     return null;
   }
 }
 
-export function updateUserAnthropicKey(userId: string, apiKey: string): void {
+export async function updateUserAnthropicKey(userId: string, apiKey: string): Promise<void> {
   const db = getDb();
-  const encryptedKey = apiKey ? encryptField(apiKey) : '';
+  const encryptedKey = apiKey ? await encryptField(apiKey) : '';
   const stmt = db.prepare(`
     UPDATE users
     SET anthropic_api_key = ?, updated_at = datetime('now')
@@ -166,12 +166,12 @@ export function updateUserAnthropicKey(userId: string, apiKey: string): void {
   stmt.run(encryptedKey || null, userId);
 }
 
-export function getUserAnthropicKey(userId: string): string | null {
+export async function getUserAnthropicKey(userId: string): Promise<string | null> {
   const user = getUserById(userId);
   const encrypted = user?.anthropic_api_key;
   if (!encrypted) return null;
   try {
-    return decryptField(encrypted);
+    return await decryptField(encrypted);
   } catch (error) {
     console.error('Failed to decrypt Anthropic key:', error);
     return null;
@@ -360,7 +360,7 @@ export function getAttachmentsByMessageId(messageId: string): Attachment[] {
 }
 
 // OAuth Credential operations
-export function storeOAuthCredential(
+export async function storeOAuthCredential(
   userId: string,
   provider: 'google' | 'notion',
   accessToken: string,
@@ -368,11 +368,11 @@ export function storeOAuthCredential(
   scope?: string,
   expiresAt?: Date,
   accountEmail?: string | null
-): OAuthCredential {
+): Promise<OAuthCredential> {
   const db = getDb();
   
-  const encryptedAccessToken = encryptField(accessToken);
-  const encryptedRefreshToken = refreshToken ? encryptField(refreshToken) : null;
+  const encryptedAccessToken = await encryptField(accessToken);
+  const encryptedRefreshToken = refreshToken ? await encryptField(refreshToken) : null;
   const expiresAtStr = expiresAt ? expiresAt.toISOString() : null;
   
   const existing = getOAuthCredential(userId, provider);
@@ -471,20 +471,20 @@ export function getOAuthCredential(userId: string, provider: 'google' | 'notion'
   return credential || null;
 }
 
-export function getDecryptedOAuthCredential(userId: string, provider: 'google' | 'notion'): {
+export async function getDecryptedOAuthCredential(userId: string, provider: 'google' | 'notion'): Promise<{
   accessToken: string;
   refreshToken?: string;
   scope?: string;
   expiresAt?: Date;
   accountEmail?: string | null;
-} | null {
+} | null> {
   const credential = getOAuthCredential(userId, provider);
   if (!credential) return null;
   
   try {
     return {
-      accessToken: decryptField(credential.access_token),
-      refreshToken: credential.refresh_token ? decryptField(credential.refresh_token) : undefined,
+      accessToken: await decryptField(credential.access_token),
+      refreshToken: credential.refresh_token ? await decryptField(credential.refresh_token) : undefined,
       scope: credential.scope || undefined,
       expiresAt: credential.expires_at ? new Date(credential.expires_at) : undefined,
       accountEmail: credential.account_email ?? null,
@@ -553,17 +553,17 @@ function deleteAppSettingRow(key: string): void {
   }
 }
 
-export function saveGoogleOAuthConfig(config: GoogleOAuthConfig): void {
+export async function saveGoogleOAuthConfig(config: GoogleOAuthConfig): Promise<void> {
   const payload = JSON.stringify(config);
-  const encrypted = encryptField(payload);
+  const encrypted = await encryptField(payload);
   upsertAppSetting(GOOGLE_OAUTH_CONFIG_KEY, encrypted);
 }
 
-export function getGoogleOAuthConfig(): GoogleOAuthConfig | null {
+export async function getGoogleOAuthConfig(): Promise<GoogleOAuthConfig | null> {
   const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
   if (!row) return null;
   try {
-    const decrypted = decryptField(row.value);
+    const decrypted = await decryptField(row.value);
     return JSON.parse(decrypted) as GoogleOAuthConfig;
   } catch (error) {
     console.error('Failed to read Google OAuth config:', error);
@@ -571,22 +571,22 @@ export function getGoogleOAuthConfig(): GoogleOAuthConfig | null {
   }
 }
 
-export function getGoogleOAuthConfigWithMeta(): {
+export async function getGoogleOAuthConfigWithMeta(): Promise<{
   config: GoogleOAuthConfig;
   createdAt: string;
   updatedAt: string;
-} | null {
+} | null> {
   const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
   if (!row) return null;
   try {
-    const decrypted = decryptField(row.value);
+    const decrypted = await decryptField(row.value);
     const config = JSON.parse(decrypted) as GoogleOAuthConfig;
     return {
       config,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
-  } catch (error) {
+} catch (error) {
     console.error('Failed to parse Google OAuth config with metadata:', error);
     return null;
   }
@@ -606,8 +606,8 @@ export interface GoogleOAuthConfigSummary {
   canDelete?: boolean;
 }
 
-export function getGoogleOAuthConfigSummary(): GoogleOAuthConfigSummary {
-  const stored = getGoogleOAuthConfigWithMeta();
+export async function getGoogleOAuthConfigSummary(): Promise<GoogleOAuthConfigSummary> {
+  const stored = await getGoogleOAuthConfigWithMeta();
   if (stored) {
     return {
       configured: true,
@@ -642,8 +642,8 @@ export function getGoogleOAuthConfigSummary(): GoogleOAuthConfigSummary {
   };
 }
 
-export function isGoogleOAuthConfigured(): boolean {
-  return getGoogleOAuthConfigSummary().configured;
+export async function isGoogleOAuthConfigured(): Promise<boolean> {
+  return (await getGoogleOAuthConfigSummary()).configured;
 }
 
 // Conversation Tools operations

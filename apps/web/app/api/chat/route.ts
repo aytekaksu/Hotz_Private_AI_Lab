@@ -93,12 +93,12 @@ export async function POST(req: Request) {
     let anthropicApiKey: string | null = null;
 
     if (activeProvider === 'anthropic') {
-      anthropicApiKey = getUserAnthropicKey(userId) || process.env.ANTHROPIC_API_KEY || null;
+      anthropicApiKey = (await getUserAnthropicKey(userId)) || process.env.ANTHROPIC_API_KEY || null;
       if (!anthropicApiKey) {
         return new Response('Anthropic API key not configured. Please add it in Settings.', { status: 400 });
       }
     } else {
-      openrouterApiKey = getUserOpenRouterKey(userId) || process.env.OPENROUTER_API_KEY || null;
+      openrouterApiKey = (await getUserOpenRouterKey(userId)) || process.env.OPENROUTER_API_KEY || null;
       if (!openrouterApiKey) {
         return new Response('OpenRouter API key not configured. Please add it in Settings.', { status: 400 });
       }

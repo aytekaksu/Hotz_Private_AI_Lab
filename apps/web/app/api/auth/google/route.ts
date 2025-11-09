@@ -10,10 +10,10 @@ const SCOPES = [
   'https://www.googleapis.com/auth/tasks',
 ];
 
-export const GET = route((req: NextRequest) => {
+export const GET = route(async (req: NextRequest) => {
   const userId = requireString(req.nextUrl.searchParams.get('userId'), 'User ID');
   try {
-    const { client } = createBaseGoogleOAuth2Client();
+    const { client } = await createBaseGoogleOAuth2Client();
     const authUrl = client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,

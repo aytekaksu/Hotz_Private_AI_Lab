@@ -4,8 +4,8 @@ import { route, requireUser, requireString, readJson, suffix } from '@/lib/api';
 
 type ApiKeyHandlerOptions = {
   keyField: keyof User;
-  getUserKey: (userId: string) => string | null;
-  updateUserKey: (userId: string, apiKey: string) => void;
+  getUserKey: (userId: string) => Promise<string | null> | string | null;
+  updateUserKey: (userId: string, apiKey: string) => Promise<void> | void;
   messages?: {
     save?: string;
     remove?: string;
@@ -13,11 +13,11 @@ type ApiKeyHandlerOptions = {
 };
 
 export const createApiKeyHandlers = ({ keyField, getUserKey, updateUserKey, messages }: ApiKeyHandlerOptions) => {
-  const GET = route((req: NextRequest) => {
+  const GET = route(async (req: NextRequest) => {
     const user = requireUser(req.nextUrl.searchParams.get('userId'));
     return {
       hasKey: Boolean(user[keyField]),
-      keySuffix: suffix(getUserKey(user.id)),
+      keySuffix: suffix(await getUserKey(user.id)),
     };
   });
 
@@ -25,7 +25,7 @@ export const createApiKeyHandlers = ({ keyField, getUserKey, updateUserKey, mess
     const body = await readJson<{ userId: string; apiKey: string }>(req);
     const user = requireUser(body.userId);
     const apiKey = requireString(body.apiKey, 'API key');
-    updateUserKey(user.id, apiKey);
+    await updateUserKey(user.id, apiKey);
     return {
       success: true,
       ...(messages?.save ? { message: messages.save } : {}),
@@ -36,7 +36,7 @@ export const createApiKeyHandlers = ({ keyField, getUserKey, updateUserKey, mess
   const DELETE = route(async (req: NextRequest) => {
     const body = await readJson<{ userId: string }>(req);
     const user = requireUser(body.userId);
-    updateUserKey(user.id, '');
+    await updateUserKey(user.id, '');
     return {
       success: true,
       ...(messages?.remove ? { message: messages.remove } : {}),

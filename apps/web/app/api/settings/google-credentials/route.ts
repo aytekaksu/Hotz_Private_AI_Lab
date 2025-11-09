@@ -62,7 +62,7 @@ function extractGoogleClientConfig(json: any): GoogleOAuthConfig {
   };
 }
 
-export const GET = route(() => coerceSummary(getGoogleOAuthConfigSummary()));
+export const GET = route(async () => coerceSummary(await getGoogleOAuthConfigSummary()));
 
 export const POST = route(async (req: NextRequest) => {
   const contentType = req.headers.get('content-type') || '';
@@ -85,15 +85,15 @@ export const POST = route(async (req: NextRequest) => {
   }
 
   const config = extractGoogleClientConfig(parsed);
-  saveGoogleOAuthConfig(config);
-  return { success: true, ...coerceSummary(getGoogleOAuthConfigSummary()) };
+  await saveGoogleOAuthConfig(config);
+  return { success: true, ...coerceSummary(await getGoogleOAuthConfigSummary()) };
 });
 
-export const DELETE = route(() => {
-  const stored = getGoogleOAuthConfigWithMeta();
+export const DELETE = route(async () => {
+  const stored = await getGoogleOAuthConfigWithMeta();
   if (!stored) {
     throw new ApiError(409, 'Google OAuth client is configured via environment variables or not set');
   }
   deleteGoogleOAuthConfig();
-  return { success: true, ...coerceSummary(getGoogleOAuthConfigSummary()) };
+  return { success: true, ...coerceSummary(await getGoogleOAuthConfigSummary()) };
 });
