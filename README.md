@@ -22,8 +22,9 @@ Quick Start (local)
 2) Install (web app)
 ```bash
 cd /root/Hotz_AI_Lab
-bun install
+bun install --workspaces
 ```
+Hoisted installs ensure every workspace stays in sync with the shared root `bun.lock`, and `bunfig.toml` pins the `.bun-cache` directory for deterministic CI installs.
 
 3) Environment
 Create `apps/web/.env.local` (see “Configuration” below). Minimum for local:

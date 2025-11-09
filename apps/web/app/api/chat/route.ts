@@ -164,7 +164,7 @@ export async function POST(req: Request) {
                 return null;
               }
               const arrayBuffer = await file.arrayBuffer();
-              const base64 = Buffer.from(arrayBuffer).toString('base64');
+              const base64 = new Uint8Array(arrayBuffer).toBase64();
               return {
                 type: 'file',
                 mediaType: img.mimetype || 'image/jpeg',

@@ -8,7 +8,8 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     RUN_ENV=bun
 
 COPY ${APP_SRC}/package.json ./package.json
-COPY ${APP_SRC}/bun.lock ./bun.lock
+# Use the workspace-level lockfile to keep container installs in sync with local hoisted deps.
+COPY bun.lock ./bun.lock
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --no-save
