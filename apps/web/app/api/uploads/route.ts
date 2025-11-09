@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { createAttachment } from '@/lib/db';
 import path from 'path';
 import { nanoid } from 'nanoid';
@@ -7,15 +7,15 @@ import { nanoid } from 'nanoid';
 export const runtime = 'nodejs';
 
 // Helper to extract text from common file types
-async function extractText(buffer: Buffer, mimetype: string): Promise<string | undefined> {
+async function extractText(data: Uint8Array, mimetype: string): Promise<string | undefined> {
   try {
     if (mimetype.startsWith('text/')) {
-      return buffer.toString('utf-8');
+      return new TextDecoder('utf-8').decode(data);
     }
     if (mimetype === 'application/pdf') {
       try {
         const pdfParse = (await import('pdf-parse')).default as (data: Buffer) => Promise<{ text: string }>;
-        const res = await pdfParse(buffer);
+        const res = await pdfParse(Buffer.from(data));
         return res.text || undefined;
       } catch (e) {
         console.error('PDF parse failed:', e);
@@ -25,7 +25,7 @@ async function extractText(buffer: Buffer, mimetype: string): Promise<string | u
     if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       try {
         const mammoth = await import('mammoth');
-        const res = await mammoth.extractRawText({ buffer });
+        const res = await mammoth.extractRawText({ buffer: Buffer.from(data) });
         const text = typeof res?.value === 'string' ? res.value : undefined;
         return text;
       } catch (e) {
@@ -85,8 +85,7 @@ export async function POST(req: NextRequest) {
     const attachments = [];
     
     for (const file of files) {
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
+      const bytes = new Uint8Array(await file.arrayBuffer());
       
       // Generate unique filename
       const ext = path.extname(file.name);
@@ -94,16 +93,16 @@ export async function POST(req: NextRequest) {
       const filepath = path.join(uploadDir, filename);
       
       // Save file
-      await writeFile(filepath, buffer);
+      await Bun.write(filepath, bytes);
       
       // Extract text content if possible
-      const textContent = await extractText(buffer, file.type);
+      const textContent = await extractText(bytes, file.type);
       
       // Save to database
       const attachment = createAttachment(
         file.name,
         file.type,
-        buffer.length,
+        bytes.byteLength,
         filepath,
         textContent
       );

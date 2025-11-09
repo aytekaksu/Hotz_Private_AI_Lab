@@ -1,5 +1,6 @@
 import path from 'path';
 import { Database } from 'bun:sqlite';
+import { assertBunRuntime } from '../utils/runtime';
 
 function resolveDbPath(url: string | undefined): string {
   if (!url) return path.join(process.cwd(), 'data', 'app.db');
@@ -13,6 +14,8 @@ function resolveDbPath(url: string | undefined): string {
 }
 
 const DB_PATH = resolveDbPath(process.env.DATABASE_URL);
+
+assertBunRuntime('Database migration');
 
 console.log('Database migration starting...');
 console.log('Database path:', DB_PATH);

@@ -290,24 +290,31 @@ export default function Home() {
     return null;
   }, [loadConversations, loadTools, selectedAgentForNextChat, userId]);
 
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: '/api/chat',
-        fetch: async (input, init) => {
-          const response = await fetch(input, init);
-          const convId = response.headers.get('X-Conversation-Id');
-          const agentSlug = response.headers.get('X-Agent-Slug') || '';
-          if (convId && currentConversationIdRef.current !== convId) {
-            currentConversationIdRef.current = convId;
-            setCurrentConversationId(convId);
-            currentAgentSlugRef.current = agentSlug || null;
-          }
-          return response;
-        },
-      }),
-    [],
-  );
+  const transport = useMemo(() => {
+    const baseFetch = globalThis.fetch;
+    const instrumentedFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await baseFetch(input, init);
+      const convId = response.headers.get('X-Conversation-Id');
+      const agentSlug = response.headers.get('X-Agent-Slug') || '';
+      if (convId && currentConversationIdRef.current !== convId) {
+        currentConversationIdRef.current = convId;
+        setCurrentConversationId(convId);
+        currentAgentSlugRef.current = agentSlug || null;
+      }
+      return response;
+    };
+    const fetchWithPreconnect = Object.assign(instrumentedFetch, {
+      preconnect:
+        typeof (baseFetch as any)?.preconnect === 'function'
+          ? (baseFetch as any).preconnect.bind(baseFetch)
+          : async (_url: RequestInfo | URL) => {},
+    }) as typeof fetch;
+
+    return new DefaultChatTransport({
+      api: '/api/chat',
+      fetch: fetchWithPreconnect,
+    });
+  }, []);
 
   const { messages, setMessages, sendMessage, status, error, stop } = useChat({
     transport,

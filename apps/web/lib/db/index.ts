@@ -1,12 +1,11 @@
 import type { Database as BunDatabase } from 'bun:sqlite';
 import { encryptField, decryptField } from '../encryption';
+import { assertBunRuntime } from '../utils/runtime';
 
 let db: BunDatabase | null = null;
 
 function loadSqlite(): typeof import('bun:sqlite') {
-  if (typeof (globalThis as any).Bun === 'undefined') {
-    throw new Error('bun:sqlite is only available when running under the Bun runtime.');
-  }
+  assertBunRuntime('SQLite database access');
   return require('bun:sqlite') as typeof import('bun:sqlite');
 }
 

@@ -5,11 +5,13 @@ import { getUserById, createMessage, getMessagesByConversationId, createConversa
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
-import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { assertBunRuntime } from '@/lib/utils/runtime';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+assertBunRuntime('Chat API route');
 
 type IncomingMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -124,48 +126,60 @@ export async function POST(req: Request) {
       return new Response('Messages required', { status: 400 });
     }
     
+    const attachmentsFromDb =
+      Array.isArray(attachments) && attachments.length > 0 ? getAttachmentsByIds(attachments) : [];
+
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
     if (userMessage.role === 'user') {
       let content = extractMessageText(userMessage);
-      if (Array.isArray(attachments) && attachments.length > 0) {
-        const atts = getAttachmentsByIds(attachments);
-        if (atts.length) {
-          const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
-          let appendix = `\n\n[Attachments]\n`;
-          for (const att of atts) {
-            appendix += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
-            const txt = att.text_content?.trim() || '';
-            if (txt.length > 0) {
-              const text = txt.length > MAX_CHARS ? txt.slice(0, MAX_CHARS) + '\n...[truncated]' : txt;
-              appendix += text + '\n';
-            } else {
-              appendix += '[no extractable text found; likely image-only or unsupported format]\n';
-            }
+      if (attachmentsFromDb.length > 0) {
+        const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
+        let appendix = `\n\n[Attachments]\n`;
+        for (const att of attachmentsFromDb) {
+          appendix += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
+          const txt = att.text_content?.trim() || '';
+          if (txt.length > 0) {
+            const text = txt.length > MAX_CHARS ? txt.slice(0, MAX_CHARS) + '\n...[truncated]' : txt;
+            appendix += text + '\n';
+          } else {
+            appendix += '[no extractable text found; likely image-only or unsupported format]\n';
           }
-          content += appendix;
         }
+        content += appendix;
       }
       
       // Build provider message content: include images as image parts when possible
       const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
-      const atts = Array.isArray(attachments) ? getAttachmentsByIds(attachments) : [];
-      const imageAtts = atts.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
+      const imageAtts = attachmentsFromDb.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
       
       if (imageAtts.length > 0) {
         const parts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
-        for (const img of imageAtts) {
-          try {
-            const buf = fs.readFileSync(img.path);
-            const dataUrl = `data:${img.mimetype};base64,${buf.toString('base64')}`;
-            parts.push({
-              type: 'file',
-              mediaType: img.mimetype || 'image/jpeg',
-              filename: img.filename,
-              url: dataUrl,
-            });
-          } catch (e) {
-            console.error('Failed to embed image attachment:', img.path, e);
+        const embeddedImages = await Promise.all(
+          imageAtts.map(async (img) => {
+            try {
+              const file = Bun.file(img.path);
+              if (!(await file.exists())) {
+                console.error('Image attachment missing on disk:', img.path);
+                return null;
+              }
+              const arrayBuffer = await file.arrayBuffer();
+              const base64 = Buffer.from(arrayBuffer).toString('base64');
+              return {
+                type: 'file',
+                mediaType: img.mimetype || 'image/jpeg',
+                filename: img.filename,
+                url: `data:${img.mimetype};base64,${base64}`,
+              };
+            } catch (e) {
+              console.error('Failed to embed image attachment:', img.path, e);
+              return null;
+            }
+          })
+        );
+        for (const part of embeddedImages) {
+          if (part) {
+            parts.push(part);
           }
         }
         normalizedMessages[normalizedMessages.length - 1].parts = parts;
