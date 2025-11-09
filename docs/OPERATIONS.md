@@ -51,19 +51,20 @@ GTASKS_TIMEOUT_MS=15000
 ## Build & Deploy
 
 ```bash
-docker compose build --no-cache web
+docker compose build web          # add --no-cache for a clean rebuild
 docker compose up -d
 ```
 
 Quick Deploy Script
 ```
-bun run deploy
+bun run deploy            # bun run deploy --clean to disable Docker cache
 ```
+- Optionally run `bun run verify` first to lint + type-check outside Docker
 - Builds the `web` image (Next.js app)
 - Restarts only the `web` service
 - Executes DB migrations against `./data/sqlite/app.db` (idempotent)
 - Prints `docker compose ps` and performs a lightweight `/api/health` check
-- Uses Bun to install workspace dependencies before building and runs `docker compose build --no-cache` for deterministic images
+- Uses Bun to install workspace dependencies before building; clean builds remain available with `--clean`
 
 Script location: `scripts/deploy.sh`
 

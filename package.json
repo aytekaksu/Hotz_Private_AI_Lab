@@ -11,6 +11,7 @@
     "build": "cd apps/web && bun run build",
     "start": "cd apps/web && bun run start",
     "db:migrate": "cd apps/web && bun run db:migrate",
+    "verify": "cd apps/web && bun run verify",
     "deploy": "bash scripts/deploy.sh"
   }
 }

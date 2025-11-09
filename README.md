@@ -57,7 +57,8 @@ Notes
 Deploy
 - One‑command deploy to production (Docker + Caddy):
   - Requirements: Docker, docker compose, valid `.env` at repo root (see docs/OPERATIONS.md)
-  - Command: `bun run deploy`
+  - Recommended preflight: `bun run verify` (lint + type-check outside the Docker build)
+  - Command: `bun run deploy` (use `--clean`/`--no-cache` for a clean-room image)
   - What it does:
     - Builds the `web` image
     - Restarts the `web` service
