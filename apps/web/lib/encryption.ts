@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 const IV_LENGTH_BYTES = 16;
 const TAG_LENGTH_BYTES = 16;
 const KEY_LENGTH_BYTES = 32;
@@ -9,25 +7,17 @@ const decoder = new TextDecoder();
 
 let cachedKeyPromise: Promise<CryptoKey> | null = null;
 let warnedKeyNormalization = false;
+const hasBunHasher = typeof Bun !== 'undefined' && typeof Bun.CryptoHasher === 'function';
 
 const toUint8Array = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
-const hasBunHasher = typeof Bun !== 'undefined' && typeof Bun.CryptoHasher === 'function';
-
-const deriveSha256 = (buffer: Buffer): Uint8Array => {
-  if (hasBunHasher) {
-    const hasher = new Bun.CryptoHasher('sha256');
-    hasher.update(buffer);
-    const digest = hasher.digest();
-    return toUint8Array(Buffer.from(digest)).subarray(0, KEY_LENGTH_BYTES);
-  }
-
-  const digest = createHash('sha256').update(buffer).digest();
-  return toUint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
+const deriveKeyBytes = async (buffer: Buffer): Promise<Uint8Array> => {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return new Uint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
 };
 
-const getKeyBytes = (): Uint8Array => {
+const getKeyBytes = async (): Promise<Uint8Array> => {
   const key = process.env.APP_ENCRYPTION_KEY?.trim();
   if (!key) {
     throw new Error('APP_ENCRYPTION_KEY environment variable is not set');
@@ -47,7 +37,13 @@ const getKeyBytes = (): Uint8Array => {
     );
     warnedKeyNormalization = true;
   }
-  return deriveSha256(buffer);
+  if (hasBunHasher) {
+    const hasher = new Bun.CryptoHasher('sha256');
+    hasher.update(buffer);
+    const digest = hasher.digest();
+    return toUint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
+  }
+  return deriveKeyBytes(buffer);
 };
 
 const viewToArrayBuffer = (view: Uint8Array): ArrayBuffer => {
@@ -59,7 +55,7 @@ const viewToArrayBuffer = (view: Uint8Array): ArrayBuffer => {
 const getCryptoKey = (): Promise<CryptoKey> => {
   if (!cachedKeyPromise) {
     cachedKeyPromise = (async () => {
-      const keyMaterial = getKeyBytes();
+      const keyMaterial = await getKeyBytes();
       return crypto.subtle.importKey('raw', viewToArrayBuffer(keyMaterial), 'AES-GCM', false, [
         'encrypt',
         'decrypt',
