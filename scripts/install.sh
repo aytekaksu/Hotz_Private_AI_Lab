@@ -73,10 +73,8 @@ if [[ ! -x "$BUN_BIN" ]]; then
   exit 1
 fi
 
-if ! command -v bun >/dev/null 2>&1; then
-  echo "[install] Ensuring Bun is available system-wide…"
-  sudo install -m 0755 "$BUN_BIN" /usr/local/bin/bun
-fi
+echo "[install] Linking Bun CLI to /usr/local/bin (requires sudo)…"
+sudo install -m 0755 "$BUN_BIN" /usr/local/bin/bun
 
 echo "[install] Cloning Hotz_Private_AI_Lab into $APP_DIR…"
 rm -rf "$APP_DIR"
