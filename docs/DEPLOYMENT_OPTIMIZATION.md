@@ -32,7 +32,8 @@ These changes keep the documented `bun run deploy` entrypoint intact while lever
 
 | Scenario                                   | Build Step | Duration | Notes |
 |--------------------------------------------|-----------:|---------:|-------|
-| Fresh build after changes                  |  Building web image  | 82.55s | No cache hit (app code changed) but lint/type-check skipped, saving ~20s. |
-| Cached redeploy (no code changes)          |  Building web image  | 7.54s  | Docker cache reuses all layers; deploy completes in 7.88s total. |
+| Fresh build after changes (pre-externalization) |  Building web image  | 82.55s | No cache hit (app code changed) but lint/type-check skipped, saving ~20s. |
+| Buildx cached redeploy (no code changes)   |  Building web image  | 7.42s  | Buildx reuses `.docker/cache` plus Bun/Next caches; measured after warming the local cache. |
+| **Forced clean rebuild (external packages + fully dynamic app)** | **Building web image** | **67.29s** | `serverComponentsExternalPackages` + `dynamic = 'force-dynamic'` keep the SWC surface minimal. Buildx is invoked with `--no-cache` while still benefiting from Bun/Next internal caches. |
 
-Quality checks now run via `bun run verify`, so linting/type safety remains available without slowing production deploys.
+Quality checks now run via `bun run verify`, so linting/type safety remains available without slowing production deploys. Buildx cache data lives in `.docker/cache`; delete it or run `bun run deploy --clean` for deterministic rebuilds.

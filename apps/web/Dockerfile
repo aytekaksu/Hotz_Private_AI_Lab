@@ -1,6 +1,6 @@
 ARG APP_SRC=apps/web
 
-FROM oven/bun:1.3.1-alpine AS deps
+FROM oven/bun:1.3.2-alpine AS deps
 ARG APP_SRC
 WORKDIR /app
 
@@ -13,7 +13,7 @@ COPY ${APP_SRC}/bun.lock ./bun.lock
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --no-save
 
-FROM oven/bun:1.3.1-alpine AS builder
+FROM oven/bun:1.3.2-alpine AS builder
 ARG APP_SRC
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN mkdir -p ./public
 RUN --mount=type=cache,target=/app/.next/cache \
     bun run build
 
-FROM oven/bun:1.3.1-alpine AS runner
+FROM oven/bun:1.3.2-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \

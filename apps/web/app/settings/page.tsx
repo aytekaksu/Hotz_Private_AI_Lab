@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 // Theme toggle removed — app is permanently dark

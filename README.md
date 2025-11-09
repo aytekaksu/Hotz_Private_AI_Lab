@@ -17,7 +17,7 @@ Features
 
 Quick Start (local)
 1) Requirements
-- Bun 1.3.1+
+- Bun 1.3.2+
 
 2) Install (web app)
 ```bash
@@ -45,18 +45,18 @@ Visit http://localhost:3000 and add your OpenRouter key under Settings. Connect 
 
 Production with Docker
 ```bash
-docker compose build --no-cache web
+docker compose build web          # add --no-cache for a clean rebuild
 docker compose up -d
 ```
 
 Notes
-- Bun is the only runtime for development and production. Install Bun 1.3.1+ locally for tooling parity; Node/npm are no longer required.
-- Docker builds intentionally run without layer caching so releases are completely reproducible.
+- Bun is the only runtime for development and production. Install Bun 1.3.2+ locally for tooling parity; Node/npm are no longer required.
+- Docker builds use Buildx with on-disk cache metadata in `.docker/cache`; `bun run deploy --clean` is available for reproducible cache-free builds.
 - Redis, NextAuth, `better-sqlite3`, and other unused Node tooling have been removed to keep the stack lean.
 
 Deploy
 - One‑command deploy to production (Docker + Caddy):
-  - Requirements: Docker, docker compose, valid `.env` at repo root (see docs/OPERATIONS.md)
+  - Requirements: Docker, docker compose, Docker Buildx plugin (auto-installed via `bun run deploy` or `bun run setup:buildx`), valid `.env` at repo root (see docs/OPERATIONS.md)
   - Recommended preflight: `bun run verify` (lint + type-check outside the Docker build)
   - Command: `bun run deploy` (use `--clean`/`--no-cache` for a clean-room image)
   - What it does:
@@ -64,6 +64,7 @@ Deploy
     - Restarts the `web` service
     - Runs database migrations idempotently
     - Prints service status and hits `/api/health`
+  - Cache tips: Buildx stores reusable layers under `.docker/cache`; delete the directory or pass `--clean` to force a full rebuild.
 
 Configuration
 Core
@@ -108,6 +109,11 @@ Tasks output shaping
 GTASKS_MAX_TASKS=50                 # hard upper bound
 GTASKS_TIMEOUT_MS=15000             # request timeouts in ms
 ```
+
+Server-only dependencies
+- Keep server-only SDKs (Google APIs, Notion, PDF/DOCX parsers, etc.) out of the RSC bundle by listing them in `experimental.serverComponentsExternalPackages` inside `apps/web/next.config.js`.
+- When adding another backend-only library, append it to that array so Next.js skips unnecessary SWC work during `next build`.
+- The root layout exports `dynamic = 'force-dynamic'` to skip static generation for user-scoped pages; do the same if you introduce additional top-level layouts that depend on runtime data.
 
 Tech Stack
 - Next.js 14 (App Router), React 18, Tailwind

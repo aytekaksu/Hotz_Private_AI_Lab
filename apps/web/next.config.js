@@ -11,6 +11,13 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    // Keep large server-only packages external so the bundler skips heavy dependency graphs.
+    serverComponentsExternalPackages: [
+      'googleapis',
+      '@notionhq/client',
+      'pdf-parse',
+      'mammoth',
+    ],
   },
   // Performance optimizations
   swcMinify: true,

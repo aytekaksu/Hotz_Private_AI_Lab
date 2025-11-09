@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useMemo, useRef, useState, Fragment, useCallback } from 'react';
 import { Disclosure } from '@headlessui/react';
 import { useRouter, useParams } from 'next/navigation';

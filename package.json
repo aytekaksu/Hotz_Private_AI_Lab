@@ -2,7 +2,7 @@
   "name": "ai-assistant-workspace",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "bun@1.3.1",
+  "packageManager": "bun@1.3.2",
   "workspaces": [
     "apps/*"
   ],
@@ -11,6 +11,7 @@
     "build": "cd apps/web && bun run build",
     "start": "cd apps/web && bun run start",
     "db:migrate": "cd apps/web && bun run db:migrate",
+    "setup:buildx": "bash scripts/setup-buildx.sh",
     "verify": "cd apps/web && bun run verify",
     "deploy": "bash scripts/deploy.sh"
   }

@@ -60,6 +60,7 @@ Quick Deploy Script
 bun run deploy            # bun run deploy --clean to disable Docker cache
 ```
 - Optionally run `bun run verify` first to lint + type-check outside Docker
+- Uses Docker Buildx (auto-installed via `bun run deploy` or `bun run setup:buildx`) with a persisted cache in `.docker/cache` to accelerate production builds
 - Builds the `web` image (Next.js app)
 - Restarts only the `web` service
 - Executes DB migrations against `./data/sqlite/app.db` (idempotent)
@@ -69,9 +70,9 @@ bun run deploy            # bun run deploy --clean to disable Docker cache
 Script location: `scripts/deploy.sh`
 
 Prereqs
-- Bun 1.3.1+ installed on the host (deploy script and tooling run with Bun)
+- Bun 1.3.2+ installed on the host (deploy script and tooling run with Bun)
 - `.env` configured for production (see Configuration)
-- Docker and docker compose installed
+- Docker, docker compose, and the Docker Buildx CLI plugin (install via `bun run setup:buildx` or allow `bun run deploy` to bootstrap it)
 - Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
 
 Database migrations can be run outside the container (or provided as a task inside a CI job):
@@ -110,3 +111,8 @@ SQLite lives in `./data/sqlite` (mounted into the container). Include this direc
 - Secrets encrypted at rest (AES‑256‑GCM) using `APP_ENCRYPTION_KEY`.
 - OAuth tokens stored encrypted; rotate keys periodically.
 - Ensure TLS is correctly provisioned by Caddy; keep tokens out of logs.
+
+## Server-only dependencies
+- Heavy SDKs that never run in the browser (Google APIs, Notion, PDF/DOCX parsing, etc.) must be listed under `experimental.serverComponentsExternalPackages` in `apps/web/next.config.js`.
+- When adding a new backend-only dependency, append it to that array so Next.js skips bundling it during `next build`, keeping clean builds fast.
+- The root layout sets `export const dynamic = 'force-dynamic'`; mirror that behavior for any new top-level layouts that depend on request-specific state so static generation stays opt-in.

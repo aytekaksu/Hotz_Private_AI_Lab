@@ -4,11 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if ! command -v bun >/dev/null 2>&1; then
-  echo "[deploy] Bun 1.3.1+ is required. Install it from https://bun.sh" >&2
+  echo "[deploy] Bun 1.3.2+ is required. Install it from https://bun.sh" >&2
   exit 1
 fi
 
 USE_NO_CACHE=false
+BUILDX_BUILDER_NAME=${BUILDX_BUILDER_NAME:-hotz_lab_builder}
+DOCKER_CACHE_DIR="$(pwd)/.docker/cache"
+DOCKER_CACHE_TMP="$(pwd)/.docker/cache-tmp"
+BUILDX_READY=0
 
 show_help() {
   cat <<'EOF'
@@ -41,6 +45,26 @@ done
 if [[ "$USE_NO_CACHE" == "true" ]]; then
   echo "[deploy] Clean build requested (Docker cache disabled)."
 fi
+
+ensure_buildx() {
+  if (( BUILDX_READY == 1 )); then
+    return
+  fi
+  if ! docker buildx version >/dev/null 2>&1; then
+    bash scripts/setup-buildx.sh
+  fi
+  if ! docker buildx version >/dev/null 2>&1; then
+    echo "[deploy] Docker Buildx is required but could not be installed." >&2
+    exit 1
+  fi
+  if ! docker buildx inspect "$BUILDX_BUILDER_NAME" >/dev/null 2>&1; then
+    echo "[deploy] Creating Docker Buildx builder ($BUILDX_BUILDER_NAME)…"
+    docker buildx create --name "$BUILDX_BUILDER_NAME" --driver docker-container --use >/dev/null
+  else
+    docker buildx use "$BUILDX_BUILDER_NAME" >/dev/null
+  fi
+  BUILDX_READY=1
+}
 
 SCRIPT_START_MS=$(date +%s%3N)
 declare -a STEP_TIMINGS=()
@@ -93,12 +117,31 @@ ensure_dependencies() {
 }
 
 build_web_image() {
-  local args=(build)
+  ensure_buildx
+  local cmd=(buildx build --builder "$BUILDX_BUILDER_NAME" --progress=plain --load --tag hotz_private_ai_lab-web --file apps/web/Dockerfile --build-arg APP_SRC=apps/web .)
   if [[ "$USE_NO_CACHE" == "true" ]]; then
-    args+=(--no-cache)
+    cmd+=(--no-cache)
+  else
+    if [[ -d "$DOCKER_CACHE_DIR" ]]; then
+      cmd+=(--cache-from "type=local,src=$DOCKER_CACHE_DIR")
+    fi
+    rm -rf "$DOCKER_CACHE_TMP"
+    mkdir -p "$DOCKER_CACHE_TMP"
+    cmd+=(--cache-to "type=local,dest=$DOCKER_CACHE_TMP,mode=max")
   fi
-  args+=(web)
-  docker-compose "${args[@]}"
+  docker "${cmd[@]}"
+  local status=$?
+  if [[ "$USE_NO_CACHE" != "true" ]]; then
+    if [[ $status -eq 0 ]]; then
+      rm -rf "$DOCKER_CACHE_DIR"
+      mv "$DOCKER_CACHE_TMP" "$DOCKER_CACHE_DIR"
+    else
+      rm -rf "$DOCKER_CACHE_TMP"
+    fi
+  else
+    rm -rf "$DOCKER_CACHE_TMP"
+  fi
+  return $status
 }
 
 run_db_migrations() {
