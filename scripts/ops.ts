@@ -129,6 +129,65 @@ const normalizeDomain = (raw: string) => {
   return { origin: url.origin, host: url.hostname };
 };
 
+const SQLITE_DIR = path.join(repoRoot, 'data/sqlite');
+const DEFAULT_CONTAINER_UID = 1001;
+const DEFAULT_CONTAINER_GID = 1001;
+
+const parseContainerId = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const CONTAINER_UID = parseContainerId(Bun.env.WEB_CONTAINER_UID, DEFAULT_CONTAINER_UID);
+const CONTAINER_GID = parseContainerId(Bun.env.WEB_CONTAINER_GID, DEFAULT_CONTAINER_GID);
+
+const chownRecursive = async (target: string, uid: number, gid: number): Promise<void> => {
+  let stats: Awaited<ReturnType<typeof fs.lstat>>;
+  try {
+    stats = await fs.lstat(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+
+  await fs.chown(target, uid, gid);
+  if (!stats.isDirectory()) {
+    return;
+  }
+
+  const entries = await fs.readdir(target);
+  for (const entry of entries) {
+    await chownRecursive(path.join(target, entry), uid, gid);
+  }
+};
+
+const ensureSqlitePermissions = async (logger: Logger): Promise<void> => {
+  await ensureDir(SQLITE_DIR);
+
+  if (process.platform === 'win32') {
+    logger.warn('Skipping SQLite permission adjustments on Windows hosts.');
+    return;
+  }
+
+  try {
+    await fs.chmod(SQLITE_DIR, 0o775);
+  } catch (error) {
+    logger.warn(
+      `Unable to set SQLite directory permissions: ${(error as Error).message}`,
+    );
+  }
+
+  try {
+    await chownRecursive(SQLITE_DIR, CONTAINER_UID, CONTAINER_GID);
+  } catch (error) {
+    logger.warn(
+      `Unable to update SQLite directory ownership (needed so the container user can write to app.db): ${(error as Error).message}`,
+    );
+  }
+};
+
 export async function deployCli(args: string[]): Promise<void> {
   const { clean, help } = parseDeployArgs(args);
   if (help) {
@@ -197,6 +256,8 @@ export async function deployCli(args: string[]): Promise<void> {
         logger.warn('Database migrations reported a non-zero exit code; continuing.');
       }
     });
+
+    await timer.runStep('Fixing SQLite permissions', () => ensureSqlitePermissions(logger));
 
     await timer.runStep('Services status', () => compose(['ps']));
     await timer.runStep('Health check', () => healthCheck(logger));
