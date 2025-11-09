@@ -2,38 +2,289 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type ChangeEvent,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useRouter } from 'next/navigation';
 // Theme toggle removed — app is permanently dark
 
 const MASK_PREFIX = '••••••••••';
 const formatKeyPreview = (suffix: string | null) => `${MASK_PREFIX}${suffix ?? '??????????'}`;
 
+type SecretSettingConfig = {
+  label: string;
+  endpoint: string;
+  requestKey: 'apiKey' | 'secret';
+  suffixKey: string;
+  confirmRemoveMessage: string;
+  fallbackSuffixLength: number;
+  allowOverwrite?: boolean;
+};
+
+type SecretSettingController = {
+  input: string;
+  setInput: Dispatch<SetStateAction<string>>;
+  display: string;
+  hasSecret: boolean;
+  isSaving: boolean;
+  isRemoving: boolean;
+  saved: boolean;
+  syncRemoteState: (present: boolean, suffix: string | null) => void;
+  save: (userId: string) => Promise<boolean>;
+  remove: (userId: string) => Promise<boolean>;
+};
+
+const OPENROUTER_SECRET_CONFIG: SecretSettingConfig = {
+  label: 'OpenRouter API key',
+  endpoint: '/api/settings/openrouter-key',
+  requestKey: 'apiKey',
+  suffixKey: 'keySuffix',
+  confirmRemoveMessage: 'Remove your OpenRouter API key? This will disable AI functionality.',
+  fallbackSuffixLength: 10,
+};
+
+const ANTHROPIC_SECRET_CONFIG: SecretSettingConfig = {
+  label: 'Anthropic API key',
+  endpoint: '/api/settings/anthropic-key',
+  requestKey: 'apiKey',
+  suffixKey: 'keySuffix',
+  confirmRemoveMessage: 'Remove your Anthropic API key?',
+  fallbackSuffixLength: 10,
+};
+
+const NOTION_SECRET_CONFIG: SecretSettingConfig = {
+  label: 'Notion integration secret',
+  endpoint: '/api/settings/notion-secret',
+  requestKey: 'secret',
+  suffixKey: 'secretSuffix',
+  confirmRemoveMessage: 'Remove the Notion integration secret? Notion tools will be disabled.',
+  fallbackSuffixLength: 6,
+  allowOverwrite: true,
+};
+
+function useSecretSetting(config: SecretSettingConfig): SecretSettingController {
+  const [input, setInput] = useState('');
+  const [display, setDisplay] = useState('');
+  const [hasSecret, setHasSecret] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
+
+  const syncRemoteState = useCallback((present: boolean, suffix: string | null) => {
+    setHasSecret(present);
+    setDisplay(present ? formatKeyPreview(suffix) : '');
+    setInput('');
+  }, []);
+
+  const triggerSavedIndicator = useCallback(() => {
+    setSaved(true);
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => setSaved(false), 3000);
+  }, []);
+
+  const save = useCallback(
+    async (userId: string) => {
+      if (!userId || (!config.allowOverwrite && hasSecret)) return false;
+      const plaintext = input.trim();
+      if (!plaintext) return false;
+
+      setIsSaving(true);
+      setSaved(false);
+
+      try {
+        const response = await fetch(config.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, [config.requestKey]: plaintext }),
+        });
+
+        const result = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          alert(`Failed to save ${config.label}: ${result?.error || 'Unknown error'}`);
+          return false;
+        }
+
+        const suffix =
+          typeof result?.[config.suffixKey] === 'string'
+            ? result[config.suffixKey]
+            : plaintext.slice(-config.fallbackSuffixLength);
+
+        syncRemoteState(true, suffix);
+        triggerSavedIndicator();
+        return true;
+      } catch (error) {
+        console.error(`Failed to save ${config.label}:`, error);
+        alert(`Failed to save ${config.label}`);
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [config, hasSecret, input, syncRemoteState, triggerSavedIndicator],
+  );
+
+  const remove = useCallback(
+    async (userId: string) => {
+      if (!userId || !hasSecret) {
+        return false;
+      }
+
+      if (config.confirmRemoveMessage && !confirm(config.confirmRemoveMessage)) {
+        return false;
+      }
+
+      setIsRemoving(true);
+
+      try {
+        const response = await fetch(config.endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId }),
+        });
+
+        const result = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          alert(`Failed to remove ${config.label}: ${result?.error || 'Unknown error'}`);
+          return false;
+        }
+
+        syncRemoteState(false, null);
+        setSaved(false);
+        return true;
+      } catch (error) {
+        console.error(`Failed to remove ${config.label}:`, error);
+        alert(`Failed to remove ${config.label}`);
+        return false;
+      } finally {
+        setIsRemoving(false);
+      }
+    },
+    [config, hasSecret, syncRemoteState],
+  );
+
+  return useMemo(
+    () => ({
+      input,
+      setInput,
+      display,
+      hasSecret,
+      isSaving,
+      isRemoving,
+      saved,
+      syncRemoteState,
+      save,
+      remove,
+    }),
+    [display, hasSecret, input, isRemoving, isSaving, remove, save, saved, syncRemoteState],
+  );
+}
+
+type ApiKeySectionProps = {
+  title: string;
+  description: string;
+  placeholder: string;
+  secret: SecretSettingController;
+  enabled: boolean;
+  onSave: () => Promise<unknown> | unknown;
+  onRemove: () => Promise<unknown> | unknown;
+};
+
+function ApiKeySection({ title, description, placeholder, secret, enabled, onSave, onRemove }: ApiKeySectionProps) {
+  const readOnly = secret.hasSecret;
+  const value = readOnly ? secret.display : secret.input;
+
+  return (
+    <section className="rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-xs text-muted">{description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {secret.saved && <span className="text-xs text-emerald-400">Saved ✓</span>}
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
+              enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-border text-muted'
+            }`}
+          >
+            {enabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+      </div>
+      <div className="mt-4 space-y-3">
+        <input
+          type={readOnly ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => {
+            if (readOnly) return;
+            secret.setInput(event.target.value);
+          }}
+          placeholder={placeholder}
+          readOnly={readOnly}
+          autoComplete="off"
+          className={`w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none ${
+            readOnly ? 'cursor-not-allowed bg-surface/70' : ''
+          }`}
+        />
+        {!readOnly ? (
+          <button
+            type="button"
+            onClick={() => {
+              void onSave();
+            }}
+            disabled={secret.isSaving}
+            className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:opacity-60"
+          >
+            {secret.isSaving ? 'Saving…' : 'Save Key'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              void onRemove();
+            }}
+            disabled={secret.isRemoving}
+            className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {secret.isRemoving ? 'Removing…' : 'Remove key'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string>('');
-  const [openRouterKey, setOpenRouterKey] = useState('');
-  const [isSavingKey, setIsSavingKey] = useState(false);
-  const [keySaved, setKeySaved] = useState(false);
-  const [hasExistingKey, setHasExistingKey] = useState(false);
-  const [isRemovingKey, setIsRemovingKey] = useState(false);
-  const [openRouterSuffix, setOpenRouterSuffix] = useState<string | null>(null);
-  const [openRouterDisplay, setOpenRouterDisplay] = useState('');
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [isSavingAnthKey, setIsSavingAnthKey] = useState(false);
-  const [anthKeySaved, setAnthKeySaved] = useState(false);
-  const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
-  const [isRemovingAnthKey, setIsRemovingAnthKey] = useState(false);
-  const [anthropicSuffix, setAnthropicSuffix] = useState<string | null>(null);
-  const [anthropicDisplay, setAnthropicDisplay] = useState('');
+  const openRouterSecret = useSecretSetting(OPENROUTER_SECRET_CONFIG);
+  const anthropicSecret = useSecretSetting(ANTHROPIC_SECRET_CONFIG);
+  const notionSecretField = useSecretSetting(NOTION_SECRET_CONFIG);
+  const syncOpenRouter = openRouterSecret.syncRemoteState;
+  const syncAnthropic = anthropicSecret.syncRemoteState;
+  const syncNotionSecret = notionSecretField.syncRemoteState;
   const [googleConnected, setGoogleConnected] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
-  const [hasNotionSecret, setHasNotionSecret] = useState(false);
-  const [notionSecretDisplay, setNotionSecretDisplay] = useState('');
-  const [notionSecret, setNotionSecret] = useState('');
-  const [isSavingNotionSecret, setIsSavingNotionSecret] = useState(false);
-  const [notionSecretSaved, setNotionSecretSaved] = useState(false);
-  const [isRemovingNotionSecret, setIsRemovingNotionSecret] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [googleClientConfigured, setGoogleClientConfigured] = useState(false);
   const [googleClientSource, setGoogleClientSource] = useState<'database' | 'env' | null>(null);
@@ -84,15 +335,10 @@ export default function SettingsPage() {
       const data = await response.json();
       if (data.hasKey) {
         const suffix = typeof data.keySuffix === 'string' ? data.keySuffix : null;
-        setHasExistingKey(true);
-        setOpenRouterSuffix(suffix);
-        setOpenRouterDisplay(formatKeyPreview(suffix));
+        syncOpenRouter(true, suffix);
       } else {
-        setHasExistingKey(false);
-        setOpenRouterSuffix(null);
-        setOpenRouterDisplay('');
+        syncOpenRouter(false, null);
       }
-      setOpenRouterKey('');
 
       let anthropicKeyPresent = false;
       try {
@@ -101,16 +347,11 @@ export default function SettingsPage() {
         if (aData.hasKey) {
           anthropicKeyPresent = true;
           const suffix = typeof aData.keySuffix === 'string' ? aData.keySuffix : null;
-          setAnthropicSuffix(suffix);
-          setAnthropicDisplay(formatKeyPreview(suffix));
-          setHasAnthropicKey(true);
+          syncAnthropic(true, suffix);
         } else {
           anthropicKeyPresent = false;
-          setAnthropicSuffix(null);
-          setAnthropicDisplay('');
-          setHasAnthropicKey(false);
+          syncAnthropic(false, null);
         }
-        setAnthropicKey('');
       } catch (error) {
         console.warn('Failed to load Anthropic key state:', error);
       }
@@ -149,24 +390,19 @@ export default function SettingsPage() {
           notionSecretConfigured = !!notionData.hasSecret;
           if (notionSecretConfigured) {
             const suffix = typeof notionData.secretSuffix === 'string' ? notionData.secretSuffix : null;
-            setHasNotionSecret(true);
-            setNotionSecretDisplay(formatKeyPreview(suffix));
+            syncNotionSecret(true, suffix);
           } else {
-            setHasNotionSecret(false);
-            setNotionSecretDisplay('');
+            syncNotionSecret(false, null);
           }
         } else {
           notionSecretConfigured = false;
-          setHasNotionSecret(false);
-          setNotionSecretDisplay('');
+          syncNotionSecret(false, null);
         }
       } catch (error) {
         console.warn('Failed to load Notion integration state:', error);
         notionSecretConfigured = false;
-        setHasNotionSecret(false);
-        setNotionSecretDisplay('');
+        syncNotionSecret(false, null);
       }
-      setNotionSecret('');
       setNotionConnected(notionSecretConfigured);
 
       const statusResponse = await fetch(`/api/status?userId=${uid}`);
@@ -202,7 +438,7 @@ export default function SettingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchGoogleClientConfig]);
+  }, [fetchGoogleClientConfig, syncAnthropic, syncNotionSecret, syncOpenRouter]);
 
   useEffect(() => {
     const initSettings = async () => {
@@ -272,153 +508,25 @@ export default function SettingsPage() {
     initSettings();
   }, [loadSettings]);
 
-  const saveOpenRouterKey = async () => {
-    if (hasExistingKey) return;
-    const plaintextKey = openRouterKey.trim();
-    if (!plaintextKey) return;
-    setIsSavingKey(true);
-    setKeySaved(false);
+  const saveOpenRouterKey = () => openRouterSecret.save(userId);
 
-    try {
-      const response = await fetch('/api/settings/openrouter-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, apiKey: plaintextKey }),
-      });
+  const removeOpenRouterKey = () => openRouterSecret.remove(userId);
 
-      let result: any = null;
-      try {
-        result = await response.json();
-      } catch {
-        result = null;
-      }
-
-      if (response.ok) {
-        const suffix =
-          (result && typeof result.keySuffix === 'string'
-            ? result.keySuffix
-            : plaintextKey.slice(-10));
-        setKeySaved(true);
-        setOpenRouterSuffix(suffix);
-        setOpenRouterDisplay(formatKeyPreview(suffix));
-        setHasExistingKey(true);
-        setOpenRouterKey('');
-        setTimeout(() => setKeySaved(false), 3000);
-      } else {
-        alert(`Failed to save API key: ${result?.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Failed to save API key:', error);
-      alert('Failed to save API key');
-    } finally {
-      setIsSavingKey(false);
-    }
-  };
-
-  const removeOpenRouterKey = async () => {
-    if (!confirm('Remove your OpenRouter API key? This will disable AI functionality.')) return;
-    setIsRemovingKey(true);
-
-    try {
-      const response = await fetch('/api/settings/openrouter-key', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-
-      if (response.ok) {
-        setOpenRouterKey('');
-        setOpenRouterSuffix(null);
-        setOpenRouterDisplay('');
-        setHasExistingKey(false);
-        setKeySaved(false);
-      } else {
-        const errorData = await response.json();
-        alert(`Failed to remove API key: ${errorData.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Failed to remove API key:', error);
-      alert('Failed to remove API key');
-    } finally {
-      setIsRemovingKey(false);
-    }
-  };
-
-  const saveAnthropicKey = async () => {
-    if (hasAnthropicKey) return;
-    const plaintextKey = anthropicKey.trim();
-    if (!plaintextKey) return;
-    setIsSavingAnthKey(true);
-    setAnthKeySaved(false);
-
-    try {
-      const response = await fetch('/api/settings/anthropic-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, apiKey: plaintextKey }),
-      });
-
-      let result: any = null;
-      try {
-        result = await response.json();
-      } catch {
-        result = null;
-      }
-
-      if (response.ok) {
-        const suffix =
-          (result && typeof result.keySuffix === 'string'
-            ? result.keySuffix
-            : plaintextKey.slice(-10));
-        setAnthKeySaved(true);
-        setAnthropicSuffix(suffix);
-        setAnthropicDisplay(formatKeyPreview(suffix));
-        setAnthropicKey('');
-        setHasAnthropicKey(true);
-        setTimeout(() => setAnthKeySaved(false), 3000);
-      } else {
-        alert(`Failed to save API key: ${result?.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Failed to save Anthropic key:', error);
-      alert('Failed to save API key');
-    } finally {
-      setIsSavingAnthKey(false);
-    }
-  };
+  const saveAnthropicKey = () => anthropicSecret.save(userId);
 
   const removeAnthropicKey = async () => {
-    if (!confirm('Remove your Anthropic API key?')) return;
-    setIsRemovingAnthKey(true);
-
-    try {
-      const response = await fetch('/api/settings/anthropic-key', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-
-      if (response.ok) {
-        setAnthropicKey('');
-        setAnthropicSuffix(null);
-        setAnthropicDisplay('');
-        setHasAnthropicKey(false);
-        setAnthKeySaved(false);
-        setProvider('openrouter');
+    const removed = await anthropicSecret.remove(userId);
+    if (removed) {
+      setProvider('openrouter');
+      try {
         await fetch('/api/settings/provider', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, provider: 'openrouter' }),
         });
-      } else {
-        const errorData = await response.json();
-        alert(`Failed to remove API key: ${errorData.error || 'Unknown error'}`);
+      } catch (error) {
+        console.error('Failed to reset provider preference after removing Anthropic key:', error);
       }
-    } catch (error) {
-      console.error('Failed to remove Anthropic key:', error);
-      alert('Failed to remove API key');
-    } finally {
-      setIsRemovingAnthKey(false);
     }
   };
 
@@ -448,7 +556,7 @@ export default function SettingsPage() {
   };
 
   const saveProvider = async (prov: 'openrouter' | 'anthropic') => {
-    if (prov === 'anthropic' && !hasAnthropicKey) {
+    if (prov === 'anthropic' && !anthropicSecret.hasSecret) {
       alert('Add your Anthropic API key first.');
       setProvider('openrouter');
       return;
@@ -575,85 +683,25 @@ export default function SettingsPage() {
   };
 
   const saveNotionSecret = async () => {
-    const secret = notionSecret.trim();
-    if (!secret || isSavingNotionSecret || !userId) return;
-    setIsSavingNotionSecret(true);
-    setNotionSecretSaved(false);
-
-    try {
-      const response = await fetch('/api/settings/notion-secret', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, secret }),
-      });
-
-      let result: any = null;
-      try {
-        result = await response.json();
-      } catch {
-        result = null;
-      }
-
-      if (response.ok) {
-        const suffix =
-          (result && typeof result.secretSuffix === 'string'
-            ? result.secretSuffix
-            : secret.slice(-6));
-        setHasNotionSecret(true);
-        setNotionSecretDisplay(formatKeyPreview(suffix));
-        setNotionSecret('');
-        setNotionConnected(true);
-        setNotionSecretSaved(true);
-        setTimeout(() => setNotionSecretSaved(false), 3000);
-      } else {
-        alert(`Failed to save Notion integration secret: ${result?.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Failed to save Notion integration secret:', error);
-      alert('Failed to save Notion integration secret');
-    } finally {
-      setIsSavingNotionSecret(false);
+    const saved = await notionSecretField.save(userId);
+    if (saved) {
+      setNotionConnected(true);
     }
   };
 
   const removeNotionSecret = async () => {
-    if (!userId) return;
-    if (!hasNotionSecret) {
-      setNotionSecret('');
-      setNotionSecretDisplay('');
-      return;
-    }
-    if (!confirm('Remove the Notion integration secret? Notion tools will be disabled.')) return;
-    setIsRemovingNotionSecret(true);
-    try {
-      const response = await fetch('/api/settings/notion-secret', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.error || 'Failed to remove secret');
-      }
-
-      setHasNotionSecret(false);
-      setNotionSecretDisplay('');
-      setNotionSecret('');
+    const removed = await notionSecretField.remove(userId);
+    if (removed) {
       setNotionConnected(false);
-    } catch (error) {
-      console.error('Failed to disconnect Notion:', error);
-      alert('Failed to remove Notion integration secret');
-    } finally {
-      setIsRemovingNotionSecret(false);
     }
   };
 
   const openRouterEnabled = provider === 'openrouter';
   const anthropicEnabled = provider === 'anthropic';
+  const hasNotionSecret = notionSecretField.hasSecret;
   const notionSaveLabel = hasNotionSecret ? 'Update secret' : 'Save secret';
-  const notionSaveButtonText = isSavingNotionSecret ? 'Saving…' : notionSaveLabel;
-  const notionRemoveButtonText = isRemovingNotionSecret ? 'Removing…' : 'Remove secret';
+  const notionSaveButtonText = notionSecretField.isSaving ? 'Saving…' : notionSaveLabel;
+  const notionRemoveButtonText = notionSecretField.isRemoving ? 'Removing…' : 'Remove secret';
   const googleClientReadOnly = googleClientSource === 'env';
   const formattedGoogleClientUpdatedAt = googleClientUpdatedAt
     ? new Date(googleClientUpdatedAt).toLocaleString()
@@ -884,14 +932,14 @@ export default function SettingsPage() {
                     <p
                       className={`mt-1 font-mono text-sm ${hasNotionSecret ? 'text-foreground' : 'text-muted'}`}
                     >
-                      {hasNotionSecret ? notionSecretDisplay : 'None saved'}
+                      {hasNotionSecret ? notionSecretField.display : 'None saved'}
                     </p>
                   </div>
                   <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                     <input
                       type="password"
-                      value={notionSecret}
-                      onChange={(event) => setNotionSecret(event.target.value)}
+                      value={notionSecretField.input}
+                      onChange={(event) => notionSecretField.setInput(event.target.value)}
                       placeholder="Paste integration secret"
                       className="w-full flex-1 rounded-full border border-border bg-background/60 px-4 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-0"
                       autoComplete="off"
@@ -900,7 +948,7 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={saveNotionSecret}
-                      disabled={isSavingNotionSecret || !notionSecret.trim()}
+                      disabled={notionSecretField.isSaving || !notionSecretField.input.trim()}
                       className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {notionSaveButtonText}
@@ -909,14 +957,14 @@ export default function SettingsPage() {
                       <button
                         type="button"
                         onClick={removeNotionSecret}
-                        disabled={isRemovingNotionSecret}
+                        disabled={notionSecretField.isRemoving}
                         className="text-sm text-muted transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {notionRemoveButtonText}
                       </button>
                     )}
                   </div>
-                  {notionSecretSaved && (
+                  {notionSecretField.saved && (
                     <p className="text-xs text-emerald-400">Secret saved ✓</p>
                   )}
                   <p className="text-xs leading-relaxed text-muted">
@@ -961,14 +1009,14 @@ export default function SettingsPage() {
                       } disabled:cursor-not-allowed disabled:opacity-50`}
                       aria-pressed={provider === 'anthropic'}
                       onClick={() => saveProvider('anthropic')}
-                      disabled={!hasAnthropicKey && provider !== 'anthropic'}
-                      title={!hasAnthropicKey ? 'Add your Anthropic API key first' : undefined}
+                      disabled={!anthropicSecret.hasSecret && provider !== 'anthropic'}
+                      title={!anthropicSecret.hasSecret ? 'Add your Anthropic API key first' : undefined}
                     >
                       Anthropic
                     </button>
                   </div>
                 </div>
-                {!hasAnthropicKey && (
+                {!anthropicSecret.hasSecret && (
                   <p className="text-xs text-amber-500">Add an Anthropic API key to enable the Anthropic provider toggle.</p>
                 )}
                 <div className="flex flex-wrap items-center gap-3">
@@ -1009,121 +1057,25 @@ export default function SettingsPage() {
               <p className="mt-2 text-xs text-muted">Routing preference applies only when using OpenRouter.</p>
             </section>
 
-            <section className="rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">OpenRouter API Key</h2>
-                    <p className="text-xs text-muted">Use Claude via Openrouter.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {keySaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
-                        openRouterEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-border text-muted'
-                      }`}
-                    >
-                      {openRouterEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-3">
-                  <input
-                    type={hasExistingKey ? 'text' : 'password'}
-                    value={hasExistingKey ? openRouterDisplay : openRouterKey}
-                    onChange={(event) => {
-                      if (hasExistingKey) return;
-                      setOpenRouterKey(event.target.value);
-                    }}
-                    placeholder="sk-or-..."
-                    readOnly={hasExistingKey}
-                    autoComplete="off"
-                    className={`w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none ${
-                      hasExistingKey ? 'cursor-not-allowed bg-surface/70' : ''
-                    }`}
-                  />
-                  {!hasExistingKey && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={saveOpenRouterKey}
-                        disabled={isSavingKey}
-                        className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:opacity-60"
-                      >
-                        {isSavingKey ? 'Saving…' : 'Save Key'}
-                      </button>
-                    </div>
-                  )}
-                  {hasExistingKey && (
-                    <button
-                      type="button"
-                      onClick={removeOpenRouterKey}
-                      disabled={isRemovingKey}
-                      className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isRemovingKey ? 'Removing…' : 'Remove key'}
-                    </button>
-                  )}
-                  {/* helper text removed to reduce vertical space */}
-                </div>
-              </section>
+            <ApiKeySection
+              title="OpenRouter API Key"
+              description="Use Claude via Openrouter."
+              placeholder="sk-or-..."
+              secret={openRouterSecret}
+              enabled={openRouterEnabled}
+              onSave={saveOpenRouterKey}
+              onRemove={removeOpenRouterKey}
+            />
 
-            <section className="rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold">Anthropic API Key</h2>
-                    <p className="text-xs text-muted">Use Claude directly via Anthropic.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {anthKeySaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
-                        anthropicEnabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-border text-muted'
-                      }`}
-                    >
-                      {anthropicEnabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-3">
-                  <input
-                    type={hasAnthropicKey ? 'text' : 'password'}
-                    value={hasAnthropicKey ? anthropicDisplay : anthropicKey}
-                    onChange={(event) => {
-                      if (hasAnthropicKey) return;
-                      setAnthropicKey(event.target.value);
-                    }}
-                    placeholder="sk-ant-..."
-                    readOnly={hasAnthropicKey}
-                    autoComplete="off"
-                    className={`w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none ${
-                      hasAnthropicKey ? 'cursor-not-allowed bg-surface/70' : ''
-                    }`}
-                  />
-                  {!hasAnthropicKey && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={saveAnthropicKey}
-                        disabled={isSavingAnthKey}
-                        className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:opacity-60"
-                      >
-                        {isSavingAnthKey ? 'Saving…' : 'Save Key'}
-                      </button>
-                    </div>
-                  )}
-                  {hasAnthropicKey && (
-                    <button
-                      type="button"
-                      onClick={removeAnthropicKey}
-                      disabled={isRemovingAnthKey}
-                      className="inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isRemovingAnthKey ? 'Removing…' : 'Remove key'}
-                    </button>
-                  )}
-                  {/* helper text removed to reduce vertical space */}
-                </div>
-              </section>
+            <ApiKeySection
+              title="Anthropic API Key"
+              description="Use Claude directly via Anthropic."
+              placeholder="sk-ant-..."
+              secret={anthropicSecret}
+              enabled={anthropicEnabled}
+              onSave={saveAnthropicKey}
+              onRemove={removeAnthropicKey}
+            />
 
           </div>
         </div>
