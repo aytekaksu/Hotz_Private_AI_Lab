@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const IV_LENGTH_BYTES = 16;
 const TAG_LENGTH_BYTES = 16;
 const KEY_LENGTH_BYTES = 32;
@@ -10,6 +12,20 @@ let warnedKeyNormalization = false;
 
 const toUint8Array = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+const hasBunHasher = typeof Bun !== 'undefined' && typeof Bun.CryptoHasher === 'function';
+
+const deriveSha256 = (buffer: Buffer): Uint8Array => {
+  if (hasBunHasher) {
+    const hasher = new Bun.CryptoHasher('sha256');
+    hasher.update(buffer);
+    const digest = hasher.digest();
+    return toUint8Array(Buffer.from(digest)).subarray(0, KEY_LENGTH_BYTES);
+  }
+
+  const digest = createHash('sha256').update(buffer).digest();
+  return toUint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
+};
 
 const getKeyBytes = (): Uint8Array => {
   const key = process.env.APP_ENCRYPTION_KEY?.trim();
@@ -27,14 +43,11 @@ const getKeyBytes = (): Uint8Array => {
   }
   if (!warnedKeyNormalization) {
     console.warn(
-      `APP_ENCRYPTION_KEY is ${buffer.length} bytes; deriving a ${KEY_LENGTH_BYTES}-byte key via Bun.CryptoHasher.`
+      `APP_ENCRYPTION_KEY is ${buffer.length} bytes; deriving a ${KEY_LENGTH_BYTES}-byte key via SHA-256.`
     );
     warnedKeyNormalization = true;
   }
-  const hasher = new Bun.CryptoHasher('sha256');
-  hasher.update(buffer);
-  const digest = hasher.digest();
-  return toUint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
+  return deriveSha256(buffer);
 };
 
 const viewToArrayBuffer = (view: Uint8Array): ArrayBuffer => {
