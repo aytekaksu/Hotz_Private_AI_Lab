@@ -379,12 +379,17 @@ export async function bootstrapCli(args: string[]): Promise<void> {
     ACME_EMAIL: email,
   });
 
+  process.env.APP_PUBLIC_URL = origin;
+  process.env.NEXTAUTH_URL = origin;
+  process.env.INTERNAL_DOMAIN = host;
+  process.env.ACME_EMAIL = email;
+
   process.env.HEALTHCHECK_URL = `${origin}/api/health`;
 
   const logger = createLogger('bootstrap');
   await run(['bun', 'install']);
   await setupBuildxCli();
   await deployCli([]);
-  await compose(['up', '-d', 'caddy']);
+  await provisionTlsCli();
   logger.success(`Deployment complete at ${origin}`);
 }
