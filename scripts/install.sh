@@ -37,7 +37,9 @@ fi
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 
 export DEBIAN_FRONTEND=noninteractive
+echo "[install] Updating apt package index…"
 sudo apt-get update -y >/dev/null
+echo "[install] Installing base packages (git, curl, ca-certificates, unzip)…"
 sudo apt-get install -y git curl ca-certificates unzip >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -45,6 +47,7 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sudo sh >/dev/null
 fi
 
+echo "[install] Enabling & starting Docker service…"
 sudo systemctl enable --now docker >/dev/null
 
 if ! docker compose version >/dev/null 2>&1; then
@@ -53,11 +56,13 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 if ! command -v bun >/dev/null 2>&1; then
+  echo "[install] Installing Bun runtime…"
   curl -fsSL https://bun.sh/install | bash >/dev/null
 fi
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
+echo "[install] Cloning Hotz_Private_AI_Lab into $APP_DIR…"
 rm -rf "$APP_DIR"
 if [[ -n "${GITHUB_USER:-}" && -n "${GITHUB_PAT:-}" ]]; then
   git clone --branch clean-install "https://${GITHUB_USER}:${GITHUB_PAT}@github.com/aytekaksu/Hotz_Private_AI_Lab.git" "$APP_DIR"
@@ -67,4 +72,5 @@ else
 fi
 cd "$APP_DIR"
 
+echo "[install] Running bootstrap for $DOMAIN…"
 ACME_EMAIL="$ACME_EMAIL_INPUT" bun run bootstrap "$DOMAIN"
