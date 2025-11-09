@@ -23,9 +23,6 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-: "${GITHUB_USER:?Set GITHUB_USER to your GitHub username}"
-: "${GITHUB_PAT:?Set GITHUB_PAT to a GitHub personal access token with repo scope}"
-
 DOMAIN="${1%/}"
 DEFAULT_ACME_EMAIL="${ACME_EMAIL:-ops@example.com}"
 ACME_EMAIL_INPUT="${2:-$DEFAULT_ACME_EMAIL}"
@@ -51,7 +48,12 @@ export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 rm -rf "$APP_DIR"
-git clone --branch clean-install "https://${GITHUB_USER}:${GITHUB_PAT}@github.com/aytekaksu/Hotz_Private_AI_Lab.git" "$APP_DIR"
+if [[ -n "${GITHUB_USER:-}" && -n "${GITHUB_PAT:-}" ]]; then
+  git clone --branch clean-install "https://${GITHUB_USER}:${GITHUB_PAT}@github.com/aytekaksu/Hotz_Private_AI_Lab.git" "$APP_DIR"
+else
+  echo "[install] GITHUB_USER/PAT not provided; cloning anonymously (requires public repository)."
+  git clone --branch clean-install https://github.com/aytekaksu/Hotz_Private_AI_Lab.git "$APP_DIR"
+fi
 cd "$APP_DIR"
 
 ACME_EMAIL="$ACME_EMAIL_INPUT" bun run bootstrap "$DOMAIN"

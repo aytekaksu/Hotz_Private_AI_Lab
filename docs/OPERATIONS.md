@@ -92,7 +92,7 @@ All operational helpers now live under `scripts/*.ts` and are executed with `bun
 - `bun run provision:tls` — rewrites `Caddyfile` for the current `INTERNAL_DOMAIN`/`ACME_EMAIL`, optionally wiring the Cloudflare DNS plugin, then restarts `caddy`.
 - `bun run setup:buildx` — installs or refreshes the Docker Buildx CLI plugin; `bun run deploy` calls this automatically when needed.
 - `bun run bootstrap <domain> [acme-email]` — post-clone convenience helper that updates `.env`, installs workspace deps, ensures Buildx, runs the deploy pipeline, and restarts `caddy` for the provided domain (falls back to `ACME_EMAIL` from the environment when the optional argument is omitted).
-- `scripts/install.sh <domain>` — end-to-end VPS installer that handles apt packages, Bun, Docker, cloning the repo (requires `GITHUB_USER` + `GITHUB_PAT` env vars), and invokes the bootstrap CLI. It defaults the ACME email to `ops@example.com`; override by setting `ACME_EMAIL` (or passing a second argument) if you want renewal notifications delivered elsewhere. Fetch the script via the GitHub Raw API using the same credentials you use for `git clone`.
+- `scripts/install.sh <domain>` — end-to-end VPS installer that handles apt packages, Bun, Docker, cloning the repo (optionally accepts `GITHUB_USER` + `GITHUB_PAT` env vars for private access; otherwise assumes the repo is temporarily public), and invokes the bootstrap CLI. It defaults the ACME email to `ops@example.com`; override by setting `ACME_EMAIL` (or passing a second argument) if you want renewal notifications delivered elsewhere. Fetch the script via the GitHub Raw API using the same credentials you use for `git clone`.
 
 ## Logs & Troubleshooting
 
