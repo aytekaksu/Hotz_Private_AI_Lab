@@ -44,8 +44,8 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 echo "[install] Updating apt package index…"
 sudo -E apt-get update -y >/dev/null
-echo "[install] Installing base packages (git, curl, ca-certificates, unzip)…"
-sudo -E apt-get install -y git curl ca-certificates unzip >/dev/null
+echo "[install] Installing base packages (git, curl, ca-certificates, unzip, openssl)…"
+sudo -E apt-get install -y git curl ca-certificates unzip openssl >/dev/null
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[install] Docker not found; installing via get.docker.com…"
@@ -90,6 +90,29 @@ if [[ ! -f .env && -f .env.example ]]; then
   cp .env.example .env
 fi
 
+ensure_env_var() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env; then
+    sed -i "s|^${key}=.*|${key}=${value}|" .env
+  else
+    echo "${key}=${value}" >> .env
+  fi
+}
+
+ensure_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env; then
+    local current
+    current=$(grep -m1 "^${key}=" .env | cut -d= -f2-)
+    if [[ -n "${current}" ]]; then
+      return
+    fi
+  fi
+  ensure_env_var "$key" "$value"
+}
+
 perl -0pi -e 's|^NEXTAUTH_URL=.*$|NEXTAUTH_URL='$DOMAIN'|m' .env 2>/dev/null || true
 perl -0pi -e 's|^APP_PUBLIC_URL=.*$|APP_PUBLIC_URL='$DOMAIN'|m' .env 2>/dev/null || true
 perl -0pi -e 's|^INTERNAL_DOMAIN=.*$|INTERNAL_DOMAIN='$DOMAIN_HOST'|m' .env 2>/dev/null || true
@@ -106,6 +129,12 @@ if ! grep -q '^INTERNAL_DOMAIN=' .env; then
 fi
 if ! grep -q '^ACME_EMAIL=' .env; then
   echo "ACME_EMAIL=$ACME_EMAIL_INPUT" >> .env
+fi
+
+if ! grep -q '^APP_ENCRYPTION_KEY=' .env || [[ -z "$(grep -m1 '^APP_ENCRYPTION_KEY=' .env | cut -d= -f2-)" ]]; then
+  GENERATED_KEY=$(openssl rand -hex 32)
+  ensure_env_var APP_ENCRYPTION_KEY "$GENERATED_KEY"
+  echo "[install] Generated APP_ENCRYPTION_KEY"
 fi
 
 echo "[install] Running bootstrap for $DOMAIN…"
