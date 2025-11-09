@@ -34,6 +34,10 @@ if [[ ! "$DOMAIN" =~ ^https?:// ]]; then
   DOMAIN="https://${DOMAIN}"
 fi
 
+DOMAIN_HOST="${DOMAIN#http://}"
+DOMAIN_HOST="${DOMAIN_HOST#https://}"
+DOMAIN_HOST="${DOMAIN_HOST%%/*}"
+
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -72,6 +76,28 @@ else
   git clone --branch clean-install https://github.com/aytekaksu/Hotz_Private_AI_Lab.git "$APP_DIR"
 fi
 cd "$APP_DIR"
+
+if [[ ! -f .env && -f .env.example ]]; then
+  cp .env.example .env
+fi
+
+perl -0pi -e 's|^NEXTAUTH_URL=.*$|NEXTAUTH_URL='$DOMAIN'|m' .env 2>/dev/null || true
+perl -0pi -e 's|^APP_PUBLIC_URL=.*$|APP_PUBLIC_URL='$DOMAIN'|m' .env 2>/dev/null || true
+perl -0pi -e 's|^INTERNAL_DOMAIN=.*$|INTERNAL_DOMAIN='$DOMAIN_HOST'|m' .env 2>/dev/null || true
+perl -0pi -e 's|^ACME_EMAIL=.*$|ACME_EMAIL='$ACME_EMAIL_INPUT'|m' .env 2>/dev/null || true
+
+if ! grep -q '^NEXTAUTH_URL=' .env; then
+  echo "NEXTAUTH_URL=$DOMAIN" >> .env
+fi
+if ! grep -q '^APP_PUBLIC_URL=' .env; then
+  echo "APP_PUBLIC_URL=$DOMAIN" >> .env
+fi
+if ! grep -q '^INTERNAL_DOMAIN=' .env; then
+  echo "INTERNAL_DOMAIN=$DOMAIN_HOST" >> .env
+fi
+if ! grep -q '^ACME_EMAIL=' .env; then
+  echo "ACME_EMAIL=$ACME_EMAIL_INPUT" >> .env
+fi
 
 echo "[install] Running bootstrap for $DOMAIN…"
 ACME_EMAIL="$ACME_EMAIL_INPUT" bun run bootstrap "$DOMAIN"
