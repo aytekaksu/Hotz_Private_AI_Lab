@@ -38,8 +38,19 @@ APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -y >/dev/null
-sudo apt-get install -y git curl ca-certificates docker.io docker-compose-plugin >/dev/null
+sudo apt-get install -y git curl ca-certificates >/dev/null
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[install] Docker not found; installing via get.docker.com…"
+  curl -fsSL https://get.docker.com | sudo sh >/dev/null
+fi
+
 sudo systemctl enable --now docker >/dev/null
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "[install] Docker Compose plugin missing; reinstalling Docker components…"
+  curl -fsSL https://get.docker.com | sudo sh >/dev/null
+fi
 
 if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash >/dev/null
