@@ -37,6 +37,7 @@ fi
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 echo "[install] Updating apt package index…"
 sudo apt-get update -y >/dev/null
 echo "[install] Installing base packages (git, curl, ca-certificates, unzip)…"
