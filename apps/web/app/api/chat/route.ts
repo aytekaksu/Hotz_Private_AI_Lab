@@ -2,6 +2,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
 import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider } from '@/lib/db';
+import type { Attachment } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -65,6 +66,32 @@ const toUIParts = (message: IncomingMessage): any[] => {
     return [{ type: 'text', text: message.content }];
   }
   return [{ type: 'text', text: '' }];
+};
+
+const formatBytes = (bytes?: number | null): string => {
+  if (!Number.isFinite(bytes ?? NaN) || bytes === null || bytes === undefined) {
+    return 'unknown size';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  const precision = unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+};
+
+type SkippedImageNote = { attachment: Attachment; reason: string };
+
+const buildSkippedImageNoteBlock = (notes: SkippedImageNote[]): string => {
+  if (notes.length === 0) return '';
+  let block = '\n[Image Notes]\n';
+  for (const { attachment, reason } of notes) {
+    block += `- ${attachment.filename || 'image'} (${formatBytes(attachment.size)}): ${reason}\n`;
+  }
+  return block;
 };
 
 export async function POST(req: Request) {
@@ -131,62 +158,88 @@ export async function POST(req: Request) {
 
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
-    if (userMessage.role === 'user') {
-      let content = extractMessageText(userMessage);
+  if (userMessage.role === 'user') {
+      const baseText = extractMessageText(userMessage);
+      const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
+      let attachmentSummary = '';
       if (attachmentsFromDb.length > 0) {
-        const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
-        let appendix = `\n\n[Attachments]\n`;
+        attachmentSummary += `\n\n[Attachments]\n`;
         for (const att of attachmentsFromDb) {
-          appendix += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
+          attachmentSummary += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
           const txt = att.text_content?.trim() || '';
           if (txt.length > 0) {
             const text = txt.length > MAX_CHARS ? txt.slice(0, MAX_CHARS) + '\n...[truncated]' : txt;
-            appendix += text + '\n';
+            attachmentSummary += text + '\n';
           } else {
-            appendix += '[no extractable text found; likely image-only or unsupported format]\n';
+            attachmentSummary += '[no extractable text found; likely image-only or unsupported format]\n';
           }
         }
-        content += appendix;
       }
-      
-      // Build provider message content: include images as image parts when possible
+
       const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
-      const imageAtts = attachmentsFromDb.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
-      
-      if (imageAtts.length > 0) {
-        const parts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
-        const embeddedImages = await Promise.all(
-          imageAtts.map(async (img) => {
-            try {
-              const file = Bun.file(img.path);
-              if (!(await file.exists())) {
-                console.error('Image attachment missing on disk:', img.path);
-                return null;
-              }
-              const arrayBuffer = await file.arrayBuffer();
-              const base64 = new Uint8Array(arrayBuffer).toBase64();
-              return {
-                type: 'file',
-                mediaType: img.mimetype || 'image/jpeg',
-                filename: img.filename,
-                url: `data:${img.mimetype};base64,${base64}`,
-              };
-            } catch (e) {
-              console.error('Failed to embed image attachment:', img.path, e);
+      const MAX_IMAGE_EMBED_BYTES =
+        Number(process.env.MAX_IMAGE_EMBED_BYTES || 4 * 1024 * 1024);
+      const skippedImageNotes: SkippedImageNote[] = [];
+      const candidateImages = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/'));
+      const inlineImageAtts: Attachment[] = [];
+      for (const img of candidateImages.slice(0, MAX_IMAGES)) {
+        if (typeof img.size === 'number' && img.size > MAX_IMAGE_EMBED_BYTES) {
+          skippedImageNotes.push({
+            attachment: img,
+            reason: `not sent to the model because it exceeds the ${formatBytes(
+              MAX_IMAGE_EMBED_BYTES,
+            )} inline image limit`,
+          });
+        } else {
+          inlineImageAtts.push(img);
+        }
+      }
+
+      let content = baseText + attachmentSummary;
+
+      const embeddedImageParts = await Promise.all(
+        inlineImageAtts.map(async (img) => {
+          try {
+            const file = Bun.file(img.path);
+            if (!(await file.exists())) {
+              const reason = `could not be read from disk (missing file at ${img.path})`;
+              skippedImageNotes.push({ attachment: img, reason });
+              console.error('Image attachment missing on disk:', img.path);
               return null;
             }
-          })
-        );
-        for (const part of embeddedImages) {
-          if (part) {
-            parts.push(part);
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString('base64');
+            return {
+              type: 'file',
+              mediaType: img.mimetype || 'image/jpeg',
+              filename: img.filename,
+              url: `data:${img.mimetype};base64,${base64}`,
+            };
+          } catch (e) {
+            skippedImageNotes.push({
+              attachment: img,
+              reason: 'failed to inline due to a read/encode error',
+            });
+            console.error('Failed to embed image attachment:', img.path, e);
+            return null;
           }
-        }
-        normalizedMessages[normalizedMessages.length - 1].parts = parts;
-      } else {
-        // Fallback: text-only
-        normalizedMessages[normalizedMessages.length - 1].parts = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
+        }),
+      );
+
+      if (skippedImageNotes.length > 0) {
+        content += buildSkippedImageNoteBlock(skippedImageNotes);
       }
+
+      const messageParts: any[] = [
+        { type: 'text', text: content, cache_control: { type: 'ephemeral' } },
+      ];
+      for (const part of embeddedImageParts) {
+        if (part) {
+          messageParts.push(part);
+        }
+      }
+
+      normalizedMessages[normalizedMessages.length - 1].parts = messageParts;
       
       const saved = createMessage(currentConversationId, 'user', content);
       if (Array.isArray(attachments) && attachments.length > 0) {
