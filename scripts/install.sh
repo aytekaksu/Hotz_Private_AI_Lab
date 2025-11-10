@@ -139,3 +139,20 @@ fi
 
 echo "[install] Running bootstrap for $DOMAIN…"
 ACME_EMAIL="$ACME_EMAIL_INPUT" bun run bootstrap "$DOMAIN"
+
+echo "[install] Waiting for TLS certificate and health check…"
+HEALTH_URL="${DOMAIN%/}/api/health"
+MAX_ATTEMPTS=60
+SLEEP_SECONDS=5
+attempt=1
+until curl -fs --max-time 5 "$HEALTH_URL" >/dev/null; do
+  if [[ $attempt -ge $MAX_ATTEMPTS ]]; then
+    echo "[install] ERROR: Health check at $HEALTH_URL did not succeed after $MAX_ATTEMPTS attempts."
+    exit 1
+  fi
+  printf '\r[install] Attempt %d/%d: waiting for %s to become ready…' "$attempt" "$MAX_ATTEMPTS" "$DOMAIN"
+  attempt=$((attempt + 1))
+  sleep "$SLEEP_SECONDS"
+done
+printf '\r[install] Health check succeeded at %s after %d attempt(s).\n' "$HEALTH_URL" "$attempt"
+echo "[install] Deployment complete. Visit $DOMAIN to use the app."
