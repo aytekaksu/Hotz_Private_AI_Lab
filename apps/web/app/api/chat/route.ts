@@ -2,7 +2,6 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
 import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider } from '@/lib/db';
-import type { Attachment } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -66,32 +65,6 @@ const toUIParts = (message: IncomingMessage): any[] => {
     return [{ type: 'text', text: message.content }];
   }
   return [{ type: 'text', text: '' }];
-};
-
-const formatBytes = (bytes?: number | null): string => {
-  if (!Number.isFinite(bytes ?? NaN) || bytes === null || bytes === undefined) {
-    return 'unknown size';
-  }
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex++;
-  }
-  const precision = unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(precision)} ${units[unitIndex]}`;
-};
-
-type SkippedImageNote = { attachment: Attachment; reason: string };
-
-const buildSkippedImageNoteBlock = (notes: SkippedImageNote[]): string => {
-  if (notes.length === 0) return '';
-  let block = '\n[Image Notes]\n';
-  for (const { attachment, reason } of notes) {
-    block += `- ${attachment.filename || 'image'} (${formatBytes(attachment.size)}): ${reason}\n`;
-  }
-  return block;
 };
 
 export async function POST(req: Request) {
@@ -158,7 +131,7 @@ export async function POST(req: Request) {
 
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
-  if (userMessage.role === 'user') {
+    if (userMessage.role === 'user') {
       const baseText = extractMessageText(userMessage);
       const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
       let attachmentSummary = '';
@@ -176,34 +149,15 @@ export async function POST(req: Request) {
         }
       }
 
-      const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
-      const MAX_IMAGE_EMBED_BYTES =
-        Number(process.env.MAX_IMAGE_EMBED_BYTES || 4 * 1024 * 1024);
-      const skippedImageNotes: SkippedImageNote[] = [];
-      const candidateImages = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/'));
-      const inlineImageAtts: Attachment[] = [];
-      for (const img of candidateImages.slice(0, MAX_IMAGES)) {
-        if (typeof img.size === 'number' && img.size > MAX_IMAGE_EMBED_BYTES) {
-          skippedImageNotes.push({
-            attachment: img,
-            reason: `not sent to the model because it exceeds the ${formatBytes(
-              MAX_IMAGE_EMBED_BYTES,
-            )} inline image limit`,
-          });
-        } else {
-          inlineImageAtts.push(img);
-        }
-      }
-
       let content = baseText + attachmentSummary;
 
+      const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 5);
+      const imageAtts = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
       const embeddedImageParts = await Promise.all(
-        inlineImageAtts.map(async (img) => {
+        imageAtts.map(async (img) => {
           try {
             const file = Bun.file(img.path);
             if (!(await file.exists())) {
-              const reason = `could not be read from disk (missing file at ${img.path})`;
-              skippedImageNotes.push({ attachment: img, reason });
               console.error('Image attachment missing on disk:', img.path);
               return null;
             }
@@ -216,23 +170,13 @@ export async function POST(req: Request) {
               url: `data:${img.mimetype};base64,${base64}`,
             };
           } catch (e) {
-            skippedImageNotes.push({
-              attachment: img,
-              reason: 'failed to inline due to a read/encode error',
-            });
             console.error('Failed to embed image attachment:', img.path, e);
             return null;
           }
-        }),
+        })
       );
 
-      if (skippedImageNotes.length > 0) {
-        content += buildSkippedImageNoteBlock(skippedImageNotes);
-      }
-
-      const messageParts: any[] = [
-        { type: 'text', text: content, cache_control: { type: 'ephemeral' } },
-      ];
+      const messageParts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
       for (const part of embeddedImageParts) {
         if (part) {
           messageParts.push(part);
@@ -605,6 +549,16 @@ You also have access to the get_current_datetime tool if you need to get the cur
     });
   } catch (error) {
     console.error('Chat API error:', error);
+    if (error && typeof error === 'object') {
+      const err: any = error;
+      if (err?.response) {
+        console.error('Provider response status:', err.response.status);
+        console.error('Provider response body:', err.response.data ?? err.response.body ?? err.responseText);
+      }
+      if (err?.error) {
+        console.error('Provider error payload:', err.error);
+      }
+    }
     const isRetryError = typeof error === 'object' && error !== null && 'reason' in error && (error as any).reason === 'maxRetriesExceeded';
     const message = error instanceof Error ? error.message : 'An error occurred';
     const responseMessage = isRetryError
