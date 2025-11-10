@@ -7,6 +7,7 @@ import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
 import { randomUUID } from 'crypto';
 import { assertBunRuntime } from '@/lib/utils/runtime';
+import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,48 @@ const toUIParts = (message: IncomingMessage): any[] => {
     return [{ type: 'text', text: message.content }];
   }
   return [{ type: 'text', text: '' }];
+};
+
+const MAX_IMAGE_DIMENSION = Number(process.env.MAX_IMAGE_DIMENSION || 8000);
+
+const toDataUrlWithResize = async (
+  path: string,
+  mediaType: string | undefined,
+): Promise<string | null> => {
+  try {
+    const file = Bun.file(path);
+    if (!(await file.exists())) {
+      console.error('Image attachment missing on disk:', path);
+      return null;
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    let buffer = Buffer.from(arrayBuffer);
+    try {
+      const img = sharp(buffer);
+      const metadata = await img.metadata();
+      const width = metadata.width ?? 0;
+      const height = metadata.height ?? 0;
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        buffer = await img
+          .resize({
+            width: MAX_IMAGE_DIMENSION,
+            height: MAX_IMAGE_DIMENSION,
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .toBuffer();
+      }
+    } catch (error) {
+      console.error('Image metadata/resize failed:', path, error);
+      return null;
+    }
+    const mime = mediaType || 'image/png';
+    const base64 = buffer.toString('base64');
+    return `data:${mime};base64,${base64}`;
+  } catch (error) {
+    console.error('Image encoding failed:', path, error);
+    return null;
+  }
 };
 
 export async function POST(req: Request) {
@@ -155,24 +198,14 @@ export async function POST(req: Request) {
       const imageAtts = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
       const embeddedImageParts = await Promise.all(
         imageAtts.map(async (img) => {
-          try {
-            const file = Bun.file(img.path);
-            if (!(await file.exists())) {
-              console.error('Image attachment missing on disk:', img.path);
-              return null;
-            }
-            const arrayBuffer = await file.arrayBuffer();
-            const base64 = Buffer.from(arrayBuffer).toString('base64');
-            return {
-              type: 'file',
-              mediaType: img.mimetype || 'image/jpeg',
-              filename: img.filename,
-              url: `data:${img.mimetype};base64,${base64}`,
-            };
-          } catch (e) {
-            console.error('Failed to embed image attachment:', img.path, e);
-            return null;
-          }
+          const dataUrl = await toDataUrlWithResize(img.path, img.mimetype);
+          if (!dataUrl) return null;
+          return {
+            type: 'file',
+            mediaType: img.mimetype || 'image/jpeg',
+            filename: img.filename,
+            url: dataUrl,
+          };
         })
       );
 
