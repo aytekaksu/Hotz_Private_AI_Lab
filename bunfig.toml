@@ -1,0 +1,6 @@
+[install]
+cache = ".bun-cache"
+workspaces = true
+
+[test]
+preload = ["./apps/web/lib/setup-tests.ts"]

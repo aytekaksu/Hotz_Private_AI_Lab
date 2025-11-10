@@ -1,5 +1,6 @@
 node_modules
 .next
+.next/cache
 .git
 .gitignore
 Dockerfile
@@ -8,6 +9,15 @@ Dockerfile
 dist
 build
 *.log
+.vscode
+.idea
 .DS_Store
 data
 coverage
+playwright-report
+reports
+**/*.test.*
+**/*.spec.*
+**/__tests__
+**/__mocks__
+bun.lockb

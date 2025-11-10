@@ -1,8 +1,8 @@
 import { Client } from '@notionhq/client';
 import { getDecryptedOAuthCredential } from '../db';
 
-function getNotionClient(userId: string) {
-  const credentials = getDecryptedOAuthCredential(userId, 'notion');
+async function getNotionClient(userId: string) {
+  const credentials = await getDecryptedOAuthCredential(userId, 'notion');
   const authToken = credentials?.accessToken ?? process.env.NOTION_INTEGRATION_SECRET;
 
   if (!authToken) {
@@ -21,7 +21,7 @@ export async function queryNotionDatabase(
   }
 ): Promise<any> {
   try {
-    const notion = getNotionClient(userId);
+    const notion = await getNotionClient(userId);
     
     const response = await notion.databases.query({
       database_id: params.database_id,
@@ -60,7 +60,7 @@ export async function createNotionPage(
   }
 ): Promise<any> {
   try {
-    const notion = getNotionClient(userId);
+    const notion = await getNotionClient(userId);
     
     // Determine if parent is a database or page
     let parent: any;
@@ -140,7 +140,7 @@ export async function updateNotionPage(
   }
 ): Promise<any> {
   try {
-    const notion = getNotionClient(userId);
+    const notion = await getNotionClient(userId);
     
     const response = await notion.pages.update({
       page_id: params.page_id,
@@ -176,7 +176,7 @@ export async function appendNotionBlocks(
   }
 ): Promise<any> {
   try {
-    const notion = getNotionClient(userId);
+    const notion = await getNotionClient(userId);
     
     const response = await notion.blocks.children.append({
       block_id: params.page_id,
@@ -204,7 +204,7 @@ export async function getNotionPage(
   }
 ): Promise<any> {
   try {
-    const notion = getNotionClient(userId);
+    const notion = await getNotionClient(userId);
     
     const page = await notion.pages.retrieve({ page_id: params.page_id });
     const blocks = await notion.blocks.children.list({ block_id: params.page_id });
@@ -231,4 +231,3 @@ export async function getNotionPage(
     };
   }
 }
-

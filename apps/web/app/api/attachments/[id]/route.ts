@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import { getAttachmentById } from '@/lib/db';
-import { readFile } from 'fs/promises';
 
 export const runtime = 'nodejs';
 
@@ -16,15 +15,16 @@ export async function GET(
       return new Response('Attachment not found', { status: 404 });
     }
     
-    // Read the file
-    const fileBuffer = await readFile(attachment.path);
-    
-    // Return the file with appropriate headers
-    return new Response(new Uint8Array(fileBuffer), {
+    const file = Bun.file(attachment.path);
+    if (!(await file.exists())) {
+      return new Response('Attachment contents missing', { status: 404 });
+    }
+
+    return new Response(file.stream(), {
       headers: {
         'Content-Type': attachment.mimetype,
         'Content-Disposition': `inline; filename="${attachment.filename}"`,
-        'Content-Length': attachment.size.toString(),
+        'Content-Length': String(file.size ?? attachment.size),
       },
     });
   } catch (error) {
@@ -32,4 +32,3 @@ export async function GET(
     return new Response('Failed to serve attachment', { status: 500 });
   }
 }
-

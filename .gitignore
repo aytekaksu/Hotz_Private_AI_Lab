@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.bun-cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -106,6 +107,8 @@ dist
 # Gatsby files
 .cache/
 public
+!apps/web/public/
+!apps/web/public/**
 
 # Storybook build outputs
 .out
@@ -139,6 +142,7 @@ Thumbs.db
 
 # Project specific
 data/
+.docker/
 
 
 

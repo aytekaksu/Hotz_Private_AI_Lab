@@ -5,11 +5,14 @@ import { getUserById, createMessage, getMessagesByConversationId, createConversa
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
-import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { assertBunRuntime } from '@/lib/utils/runtime';
+import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+assertBunRuntime('Chat API route');
 
 type IncomingMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -65,6 +68,48 @@ const toUIParts = (message: IncomingMessage): any[] => {
   return [{ type: 'text', text: '' }];
 };
 
+const MAX_IMAGE_DIMENSION = Number(process.env.MAX_IMAGE_DIMENSION || 8000);
+
+const toDataUrlWithResize = async (
+  path: string,
+  mediaType: string | undefined,
+): Promise<string | null> => {
+  try {
+    const file = Bun.file(path);
+    if (!(await file.exists())) {
+      console.error('Image attachment missing on disk:', path);
+      return null;
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    let buffer = Buffer.from(arrayBuffer);
+    try {
+      const img = sharp(buffer);
+      const metadata = await img.metadata();
+      const width = metadata.width ?? 0;
+      const height = metadata.height ?? 0;
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        buffer = await img
+          .resize({
+            width: MAX_IMAGE_DIMENSION,
+            height: MAX_IMAGE_DIMENSION,
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .toBuffer();
+      }
+    } catch (error) {
+      console.error('Image metadata/resize failed:', path, error);
+      return null;
+    }
+    const mime = mediaType || 'image/png';
+    const base64 = buffer.toString('base64');
+    return `data:${mime};base64,${base64}`;
+  } catch (error) {
+    console.error('Image encoding failed:', path, error);
+    return null;
+  }
+};
+
 export async function POST(req: Request) {
   try {
     const { messages, conversationId, userId, attachments, userTimezone, agentId } = await req.json();
@@ -91,12 +136,12 @@ export async function POST(req: Request) {
     let anthropicApiKey: string | null = null;
 
     if (activeProvider === 'anthropic') {
-      anthropicApiKey = getUserAnthropicKey(userId) || process.env.ANTHROPIC_API_KEY || null;
+      anthropicApiKey = (await getUserAnthropicKey(userId)) || process.env.ANTHROPIC_API_KEY || null;
       if (!anthropicApiKey) {
         return new Response('Anthropic API key not configured. Please add it in Settings.', { status: 400 });
       }
     } else {
-      openrouterApiKey = getUserOpenRouterKey(userId) || process.env.OPENROUTER_API_KEY || null;
+      openrouterApiKey = (await getUserOpenRouterKey(userId)) || process.env.OPENROUTER_API_KEY || null;
       if (!openrouterApiKey) {
         return new Response('OpenRouter API key not configured. Please add it in Settings.', { status: 400 });
       }
@@ -124,55 +169,54 @@ export async function POST(req: Request) {
       return new Response('Messages required', { status: 400 });
     }
     
+    const attachmentsFromDb =
+      Array.isArray(attachments) && attachments.length > 0 ? getAttachmentsByIds(attachments) : [];
+
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
     if (userMessage.role === 'user') {
-      let content = extractMessageText(userMessage);
-      if (Array.isArray(attachments) && attachments.length > 0) {
-        const atts = getAttachmentsByIds(attachments);
-        if (atts.length) {
-          const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
-          let appendix = `\n\n[Attachments]\n`;
-          for (const att of atts) {
-            appendix += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
-            const txt = att.text_content?.trim() || '';
-            if (txt.length > 0) {
-              const text = txt.length > MAX_CHARS ? txt.slice(0, MAX_CHARS) + '\n...[truncated]' : txt;
-              appendix += text + '\n';
-            } else {
-              appendix += '[no extractable text found; likely image-only or unsupported format]\n';
-            }
-          }
-          content += appendix;
-        }
-      }
-      
-      // Build provider message content: include images as image parts when possible
-      const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 3);
-      const atts = Array.isArray(attachments) ? getAttachmentsByIds(attachments) : [];
-      const imageAtts = atts.filter(a => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
-      
-      if (imageAtts.length > 0) {
-        const parts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
-        for (const img of imageAtts) {
-          try {
-            const buf = fs.readFileSync(img.path);
-            const dataUrl = `data:${img.mimetype};base64,${buf.toString('base64')}`;
-            parts.push({
-              type: 'file',
-              mediaType: img.mimetype || 'image/jpeg',
-              filename: img.filename,
-              url: dataUrl,
-            });
-          } catch (e) {
-            console.error('Failed to embed image attachment:', img.path, e);
+      const baseText = extractMessageText(userMessage);
+      const MAX_CHARS = Number(process.env.MAX_ATTACHMENT_APPEND_CHARS || 50000);
+      let attachmentSummary = '';
+      if (attachmentsFromDb.length > 0) {
+        attachmentSummary += `\n\n[Attachments]\n`;
+        for (const att of attachmentsFromDb) {
+          attachmentSummary += `\n---\n${att.filename} (${att.mimetype}, ${att.size} bytes)\n`;
+          const txt = att.text_content?.trim() || '';
+          if (txt.length > 0) {
+            const text = txt.length > MAX_CHARS ? txt.slice(0, MAX_CHARS) + '\n...[truncated]' : txt;
+            attachmentSummary += text + '\n';
+          } else {
+            attachmentSummary += '[no extractable text found; likely image-only or unsupported format]\n';
           }
         }
-        normalizedMessages[normalizedMessages.length - 1].parts = parts;
-      } else {
-        // Fallback: text-only
-        normalizedMessages[normalizedMessages.length - 1].parts = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
       }
+
+      let content = baseText + attachmentSummary;
+
+      const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 5);
+      const imageAtts = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
+      const embeddedImageParts = await Promise.all(
+        imageAtts.map(async (img) => {
+          const dataUrl = await toDataUrlWithResize(img.path, img.mimetype);
+          if (!dataUrl) return null;
+          return {
+            type: 'file',
+            mediaType: img.mimetype || 'image/jpeg',
+            filename: img.filename,
+            url: dataUrl,
+          };
+        })
+      );
+
+      const messageParts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
+      for (const part of embeddedImageParts) {
+        if (part) {
+          messageParts.push(part);
+        }
+      }
+
+      normalizedMessages[normalizedMessages.length - 1].parts = messageParts;
       
       const saved = createMessage(currentConversationId, 'user', content);
       if (Array.isArray(attachments) && attachments.length > 0) {
@@ -538,6 +582,16 @@ You also have access to the get_current_datetime tool if you need to get the cur
     });
   } catch (error) {
     console.error('Chat API error:', error);
+    if (error && typeof error === 'object') {
+      const err: any = error;
+      if (err?.response) {
+        console.error('Provider response status:', err.response.status);
+        console.error('Provider response body:', err.response.data ?? err.response.body ?? err.responseText);
+      }
+      if (err?.error) {
+        console.error('Provider error payload:', err.error);
+      }
+    }
     const isRetryError = typeof error === 'object' && error !== null && 'reason' in error && (error as any).reason === 'maxRetriesExceeded';
     const message = error instanceof Error ? error.message : 'An error occurred';
     const responseMessage = isRetryError

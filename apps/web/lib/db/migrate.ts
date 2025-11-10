@@ -1,36 +1,27 @@
 import path from 'path';
+import { Database } from 'bun:sqlite';
+import { assertBunRuntime } from '../utils/runtime';
 
-const DB_PATH = process.env.DATABASE_URL?.replace('file://', '') || path.join(process.cwd(), 'data', 'app.db');
+function resolveDbPath(url: string | undefined): string {
+  if (!url) return path.join(process.cwd(), 'data', 'app.db');
+  if (url.startsWith('file://')) {
+    return url.slice('file://'.length);
+  }
+  if (url.startsWith('file:')) {
+    return url.slice('file:'.length);
+  }
+  return url;
+}
+
+const DB_PATH = resolveDbPath(process.env.DATABASE_URL);
+
+assertBunRuntime('Database migration');
 
 console.log('Database migration starting...');
 console.log('Database path:', DB_PATH);
 
-// Create DB instance using Bun's sqlite when available, otherwise better-sqlite3
-// Note: kept synchronous setup to work in both runtimes
-let db: any;
-try {
-  // @ts-ignore
-  const isBun = typeof (globalThis as any).Bun !== 'undefined';
-  if (isBun) {
-    // @ts-ignore - bun:sqlite is provided by Bun at runtime
-    const { Database: BunDatabase } = require('bun:sqlite');
-    db = new BunDatabase(DB_PATH);
-  } else {
-    // @ts-ignore - CJS require for Node
-    const BetterSqlite3 = require('better-sqlite3');
-    db = new BetterSqlite3(DB_PATH);
-  }
-} catch (e) {
-  // Fallback to better-sqlite3
-  // @ts-ignore
-  const BetterSqlite3 = require('better-sqlite3');
-  db = new BetterSqlite3(DB_PATH);
-}
-
-// Enable pragmas for consistency
-try {
-  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-} catch {}
+const db = new Database(DB_PATH);
+db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
 
 // Get current schema version
 function getCurrentVersion(): number {
@@ -270,6 +261,21 @@ const migrations = [
     }
     setVersion(7);
     console.log('✓ Migration 7 completed');
+  },
+
+  // Migration 8: Application settings key-value store
+  function migration8() {
+    console.log('Running migration 8: App settings table');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    setVersion(8);
+    console.log('✓ Migration 8 completed');
   },
 ];
 

@@ -1,21 +1,39 @@
 import { NextRequest } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
 import { createAttachment } from '@/lib/db';
-import path from 'path';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
 
-// Helper to extract text from common file types
-async function extractText(buffer: Buffer, mimetype: string): Promise<string | undefined> {
+const TEXT_STREAM_MIMETYPES = new Set(['application/json']);
+
+const LOCAL_UPLOADS_DIR = Bun.fileURLToPath(
+  new URL('./data/uploads/', Bun.pathToFileURL(process.cwd() + '/')),
+);
+
+const toDirectoryUrl = (dir: string) => Bun.pathToFileURL(dir.endsWith('/') ? dir : `${dir}/`);
+
+const resolveUploadDir = () =>
+  process.env.DATABASE_URL?.includes('/data/') ? '/data/uploads' : LOCAL_UPLOADS_DIR;
+
+const getExtension = (filename: string) => {
+  const normalized = filename?.split(/[\\/]/).pop() ?? '';
+  if (!normalized) {
+    return '';
+  }
+  const lastDot = normalized.lastIndexOf('.');
+  return lastDot > 0 ? normalized.slice(lastDot) : '';
+};
+
+const shouldStreamTextContent = (mimetype: string) =>
+  mimetype.startsWith('text/') || TEXT_STREAM_MIMETYPES.has(mimetype);
+
+// Helper to extract text from binary formats that require parsing
+async function extractText(data: Uint8Array, mimetype: string): Promise<string | undefined> {
   try {
-    if (mimetype.startsWith('text/')) {
-      return buffer.toString('utf-8');
-    }
     if (mimetype === 'application/pdf') {
       try {
         const pdfParse = (await import('pdf-parse')).default as (data: Buffer) => Promise<{ text: string }>;
-        const res = await pdfParse(buffer);
+        const res = await pdfParse(Buffer.from(data));
         return res.text || undefined;
       } catch (e) {
         console.error('PDF parse failed:', e);
@@ -25,7 +43,7 @@ async function extractText(buffer: Buffer, mimetype: string): Promise<string | u
     if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       try {
         const mammoth = await import('mammoth');
-        const res = await mammoth.extractRawText({ buffer });
+        const res = await mammoth.extractRawText({ buffer: Buffer.from(data) });
         const text = typeof res?.value === 'string' ? res.value : undefined;
         return text;
       } catch (e) {
@@ -75,37 +93,49 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    const uploadDir = process.env.DATABASE_URL?.includes('/data/')
-      ? '/data/uploads'
-      : path.join(process.cwd(), 'data', 'uploads');
-    
-    // Ensure upload directory exists
-    await mkdir(uploadDir, { recursive: true });
+    const uploadDir = resolveUploadDir();
+    const uploadDirUrl = toDirectoryUrl(uploadDir);
     
     const attachments = [];
     
     for (const file of files) {
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
+      let binaryStream = file.stream();
+      let textCapturePromise: Promise<string | undefined> | undefined;
+      
+      if (shouldStreamTextContent(file.type)) {
+        const [bytesStream, textStream] = binaryStream.tee();
+        binaryStream = bytesStream;
+        textCapturePromise = Bun.readableStreamToText(textStream)
+          .catch(err => {
+            console.error('Failed to read text attachment stream:', err);
+            return undefined;
+          });
+      }
+      
+      const bytesPromise = Bun.readableStreamToArrayBuffer(binaryStream);
+      const arrayBuffer = await bytesPromise;
+      const bytes = new Uint8Array(arrayBuffer);
+      
+      const extractedText = textCapturePromise
+        ? await textCapturePromise
+        : await extractText(bytes, file.type);
+      const normalizedText = extractedText?.trim();
       
       // Generate unique filename
-      const ext = path.extname(file.name);
+      const ext = getExtension(file.name);
       const filename = `${nanoid()}-${Date.now()}${ext}`;
-      const filepath = path.join(uploadDir, filename);
+      const filepath = Bun.fileURLToPath(new URL(`./${filename}`, uploadDirUrl));
       
       // Save file
-      await writeFile(filepath, buffer);
-      
-      // Extract text content if possible
-      const textContent = await extractText(buffer, file.type);
+      await Bun.write(filepath, bytes);
       
       // Save to database
       const attachment = createAttachment(
         file.name,
         file.type,
-        buffer.length,
+        bytes.byteLength,
         filepath,
-        textContent
+        normalizedText && normalizedText.length > 0 ? normalizedText : undefined
       );
       
       attachments.push(attachment);

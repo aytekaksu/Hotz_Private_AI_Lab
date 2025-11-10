@@ -1,47 +1,57 @@
-FROM node:20-alpine AS deps
-WORKDIR /app
-RUN apk add --no-cache python3 make g++
-COPY package.json ./
-COPY package-lock.json* ./
-# Prefer reproducible installs; fall back when no lockfile
-RUN --mount=type=cache,target=/root/.npm \
-    if [ -f package-lock.json ]; then \
-      npm ci --cache /root/.npm --prefer-offline --no-audit --no-fund; \
-    else \
-      npm install --cache /root/.npm --prefer-offline --no-audit --no-fund; \
-    fi
+ARG APP_SRC=apps/web
 
-FROM node:20-alpine AS builder
+FROM oven/bun:1.3.2-alpine AS deps
+ARG APP_SRC
 WORKDIR /app
-RUN apk add --no-cache python3 make g++ curl bash unzip
-RUN curl -fsSL https://bun.sh/install | bash
-ENV BUN_INSTALL="/root/.bun"
-ENV PATH="$BUN_INSTALL/bin:$PATH"
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun
+
+COPY ${APP_SRC}/package.json ./package.json
+# Use the workspace-level lockfile to keep container installs in sync with local hoisted deps.
+COPY bun.lock ./bun.lock
+
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --no-save
+
+FROM oven/bun:1.3.2-alpine AS builder
+ARG APP_SRC
+WORKDIR /app
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun \
+    NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=2048"
+
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NODE_OPTIONS="--max-old-space-size=2048"
-ENV NEXT_DISABLE_ESLINT=1
-ENV NEXT_DISABLE_TYPECHECK=1
-RUN bun run build
+COPY ${APP_SRC}/ ./
 
-FROM node:20-alpine AS runner
+# Ensure public directory exists (Next.js standalone build may not create it if empty)
+RUN mkdir -p ./public
+
+RUN --mount=type=cache,target=/app/.next/cache \
+    bun run build
+
+FROM oven/bun:1.3.2-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    RUN_ENV=bun \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
 RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/package.json ./package.json
-COPY --from=deps /app/node_modules ./node_modules
+# Copy public directory (will exist after build)
+COPY --chown=nextjs:nextjs --from=builder /app/public ./public
+COPY --chown=nextjs:nextjs --from=builder /app/.next/standalone ./
+COPY --chown=nextjs:nextjs --from=builder /app/.next/static ./.next/static
 
 RUN mkdir -p /data/uploads && chown -R nextjs:nextjs /data
 
 USER nextjs
 
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
 
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]

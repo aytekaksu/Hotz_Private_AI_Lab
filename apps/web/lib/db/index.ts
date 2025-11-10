@@ -1,43 +1,38 @@
+import type { Database as BunDatabase } from 'bun:sqlite';
 import { encryptField, decryptField } from '../encryption';
+import { assertBunRuntime } from '../utils/runtime';
 
-type DBLike = {
-  exec: (sql: string) => unknown;
-  prepare: (sql: string) => any;
-  close: () => void;
-};
+let db: BunDatabase | null = null;
 
-let db: DBLike | null = null;
+function loadSqlite(): typeof import('bun:sqlite') {
+  assertBunRuntime('SQLite database access');
+  return require('bun:sqlite') as typeof import('bun:sqlite');
+}
 
-export function getDb(): DBLike {
-  if (!db) {
-    const dbPath = process.env.DATABASE_URL?.replace('file://', '') || './data/app.db';
-    // Prefer bun:sqlite when running under Bun, fallback to better-sqlite3 on Node
-    try {
-      // @ts-ignore - require available in Node/Bun
-      const isBun = typeof (globalThis as any).Bun !== 'undefined';
-      if (isBun) {
-        // @ts-ignore - bun:sqlite is provided by Bun at runtime
-        const { Database: BunDatabase } = require('bun:sqlite');
-        const instance = new BunDatabase(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-        db = instance;
-      } else {
-        // @ts-ignore - CJS require for Node
-        const BetterSqlite3 = require('better-sqlite3');
-        const instance = new BetterSqlite3(dbPath);
-        instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-        db = instance;
-      }
-    } catch (e) {
-      // Final fallback to better-sqlite3 if bun:sqlite is unavailable
-      // @ts-ignore - CJS require for Node
-      const BetterSqlite3 = require('better-sqlite3');
-      const instance = new BetterSqlite3(dbPath);
-      instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
-      db = instance;
-    }
+function resolveDbPath(url: string | undefined): string {
+  if (!url) return './data/app.db';
+  if (url.startsWith('file://')) {
+    return url.slice('file://'.length);
   }
-  return db!;
+  if (url.startsWith('file:')) {
+    return url.slice('file:'.length);
+  }
+  return url;
+}
+
+function openDatabase(): BunDatabase {
+  const { Database } = loadSqlite();
+  const dbPath = resolveDbPath(process.env.DATABASE_URL);
+  const instance = new Database(dbPath);
+  instance.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;');
+  return instance;
+}
+
+export function getDb(): BunDatabase {
+  if (!db) {
+    db = openDatabase();
+  }
+  return db;
 }
 
 // Types
@@ -99,6 +94,17 @@ export interface OAuthCredential {
   account_email?: string | null;
 }
 
+export interface GoogleOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  projectId?: string | null;
+  authUri?: string | null;
+  tokenUri?: string | null;
+  authProviderCertUrl?: string | null;
+  redirectUris?: string[];
+  javascriptOrigins?: string[];
+}
+
 // User operations
 export function createUser(email: string): User {
   const db = getDb();
@@ -127,9 +133,9 @@ export function getUserByEmail(email: string): User | null {
   return user || null;
 }
 
-export function updateUserOpenRouterKey(userId: string, apiKey: string): void {
+export async function updateUserOpenRouterKey(userId: string, apiKey: string): Promise<void> {
   const db = getDb();
-  const encryptedKey = encryptField(apiKey);
+  const encryptedKey = await encryptField(apiKey);
   const stmt = db.prepare(`
     UPDATE users 
     SET openrouter_api_key = ?, updated_at = datetime('now')
@@ -138,20 +144,20 @@ export function updateUserOpenRouterKey(userId: string, apiKey: string): void {
   stmt.run(encryptedKey, userId);
 }
 
-export function getUserOpenRouterKey(userId: string): string | null {
+export async function getUserOpenRouterKey(userId: string): Promise<string | null> {
   const user = getUserById(userId);
   if (!user?.openrouter_api_key) return null;
   try {
-    return decryptField(user.openrouter_api_key);
+    return await decryptField(user.openrouter_api_key);
   } catch (error) {
     console.error('Failed to decrypt OpenRouter key:', error);
     return null;
   }
 }
 
-export function updateUserAnthropicKey(userId: string, apiKey: string): void {
+export async function updateUserAnthropicKey(userId: string, apiKey: string): Promise<void> {
   const db = getDb();
-  const encryptedKey = apiKey ? encryptField(apiKey) : '';
+  const encryptedKey = apiKey ? await encryptField(apiKey) : '';
   const stmt = db.prepare(`
     UPDATE users
     SET anthropic_api_key = ?, updated_at = datetime('now')
@@ -160,12 +166,12 @@ export function updateUserAnthropicKey(userId: string, apiKey: string): void {
   stmt.run(encryptedKey || null, userId);
 }
 
-export function getUserAnthropicKey(userId: string): string | null {
+export async function getUserAnthropicKey(userId: string): Promise<string | null> {
   const user = getUserById(userId);
   const encrypted = user?.anthropic_api_key;
   if (!encrypted) return null;
   try {
-    return decryptField(encrypted);
+    return await decryptField(encrypted);
   } catch (error) {
     console.error('Failed to decrypt Anthropic key:', error);
     return null;
@@ -354,7 +360,7 @@ export function getAttachmentsByMessageId(messageId: string): Attachment[] {
 }
 
 // OAuth Credential operations
-export function storeOAuthCredential(
+export async function storeOAuthCredential(
   userId: string,
   provider: 'google' | 'notion',
   accessToken: string,
@@ -362,11 +368,11 @@ export function storeOAuthCredential(
   scope?: string,
   expiresAt?: Date,
   accountEmail?: string | null
-): OAuthCredential {
+): Promise<OAuthCredential> {
   const db = getDb();
   
-  const encryptedAccessToken = encryptField(accessToken);
-  const encryptedRefreshToken = refreshToken ? encryptField(refreshToken) : null;
+  const encryptedAccessToken = await encryptField(accessToken);
+  const encryptedRefreshToken = refreshToken ? await encryptField(refreshToken) : null;
   const expiresAtStr = expiresAt ? expiresAt.toISOString() : null;
   
   const existing = getOAuthCredential(userId, provider);
@@ -465,20 +471,20 @@ export function getOAuthCredential(userId: string, provider: 'google' | 'notion'
   return credential || null;
 }
 
-export function getDecryptedOAuthCredential(userId: string, provider: 'google' | 'notion'): {
+export async function getDecryptedOAuthCredential(userId: string, provider: 'google' | 'notion'): Promise<{
   accessToken: string;
   refreshToken?: string;
   scope?: string;
   expiresAt?: Date;
   accountEmail?: string | null;
-} | null {
+} | null> {
   const credential = getOAuthCredential(userId, provider);
   if (!credential) return null;
   
   try {
     return {
-      accessToken: decryptField(credential.access_token),
-      refreshToken: credential.refresh_token ? decryptField(credential.refresh_token) : undefined,
+      accessToken: await decryptField(credential.access_token),
+      refreshToken: credential.refresh_token ? await decryptField(credential.refresh_token) : undefined,
       scope: credential.scope || undefined,
       expiresAt: credential.expires_at ? new Date(credential.expires_at) : undefined,
       accountEmail: credential.account_email ?? null,
@@ -493,6 +499,151 @@ export function deleteOAuthCredential(userId: string, provider: 'google' | 'noti
   const db = getDb();
   const stmt = db.prepare('DELETE FROM oauth_credentials WHERE user_id = ? AND provider = ?');
   stmt.run(userId, provider);
+}
+
+// Application settings helpers
+interface AppSettingRow {
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const GOOGLE_OAUTH_CONFIG_KEY = 'google_oauth_client';
+
+function upsertAppSetting(key: string, encryptedValue: string): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT INTO app_settings (key, value, created_at, updated_at)
+    VALUES (?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `);
+  stmt.run(key, encryptedValue);
+}
+
+function getAppSettingRow(key: string): AppSettingRow | null {
+  try {
+    const db = getDb();
+    const stmt = db.prepare('SELECT key, value, created_at, updated_at FROM app_settings WHERE key = ?');
+    const row = stmt.get(key) as AppSettingRow | undefined;
+    return row || null;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (/no such table/i.test(error.message) || /unable to open database file/i.test(error.message))
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function deleteAppSettingRow(key: string): void {
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (/no such table/i.test(error.message) || /unable to open database file/i.test(error.message))
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function saveGoogleOAuthConfig(config: GoogleOAuthConfig): Promise<void> {
+  const payload = JSON.stringify(config);
+  const encrypted = await encryptField(payload);
+  upsertAppSetting(GOOGLE_OAUTH_CONFIG_KEY, encrypted);
+}
+
+export async function getGoogleOAuthConfig(): Promise<GoogleOAuthConfig | null> {
+  const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+  if (!row) return null;
+  try {
+    const decrypted = await decryptField(row.value);
+    return JSON.parse(decrypted) as GoogleOAuthConfig;
+  } catch (error) {
+    console.error('Failed to read Google OAuth config:', error);
+    return null;
+  }
+}
+
+export async function getGoogleOAuthConfigWithMeta(): Promise<{
+  config: GoogleOAuthConfig;
+  createdAt: string;
+  updatedAt: string;
+} | null> {
+  const row = getAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+  if (!row) return null;
+  try {
+    const decrypted = await decryptField(row.value);
+    const config = JSON.parse(decrypted) as GoogleOAuthConfig;
+    return {
+      config,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+} catch (error) {
+    console.error('Failed to parse Google OAuth config with metadata:', error);
+    return null;
+  }
+}
+
+export function deleteGoogleOAuthConfig(): void {
+  deleteAppSettingRow(GOOGLE_OAUTH_CONFIG_KEY);
+}
+
+export interface GoogleOAuthConfigSummary {
+  configured: boolean;
+  source: 'database' | 'env' | null;
+  clientId?: string;
+  projectId?: string | null;
+  updatedAt?: string | null;
+  redirectUriCount?: number;
+  canDelete?: boolean;
+}
+
+export async function getGoogleOAuthConfigSummary(): Promise<GoogleOAuthConfigSummary> {
+  const stored = await getGoogleOAuthConfigWithMeta();
+  if (stored) {
+    return {
+      configured: true,
+      source: 'database',
+      clientId: stored.config.clientId,
+      projectId: stored.config.projectId ?? null,
+      updatedAt: stored.updatedAt,
+      redirectUriCount: Array.isArray(stored.config.redirectUris)
+        ? stored.config.redirectUris.length
+        : 0,
+      canDelete: true,
+    };
+  }
+
+  const envClientId = process.env.GOOGLE_CLIENT_ID;
+  const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (envClientId && envClientSecret) {
+    return {
+      configured: true,
+      source: 'env',
+      clientId: envClientId,
+      projectId: process.env.GOOGLE_PROJECT_ID ?? null,
+      updatedAt: null,
+      canDelete: false,
+    };
+  }
+
+  return {
+    configured: false,
+    source: null,
+    canDelete: false,
+  };
+}
+
+export async function isGoogleOAuthConfigured(): Promise<boolean> {
+  return (await getGoogleOAuthConfigSummary()).configured;
 }
 
 // Conversation Tools operations

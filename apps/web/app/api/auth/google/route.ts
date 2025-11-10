@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { google } from 'googleapis';
+import { createBaseGoogleOAuth2Client } from '@/lib/google-auth';
 import { deleteOAuthCredential } from '@/lib/db';
+import { ApiError, route, requireString } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
@@ -9,43 +10,25 @@ const SCOPES = [
   'https://www.googleapis.com/auth/tasks',
 ];
 
-export async function GET(req: NextRequest) {
-  const searchParams = req.nextUrl.searchParams;
-  const userId = searchParams.get('userId');
-
-  if (!userId) {
-    return Response.json({ error: 'User ID required' }, { status: 400 });
-  }
-
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.NEXTAUTH_URL}/api/auth/google/callback`
-  );
-
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-    state: userId, // Pass userId in state
-    prompt: 'consent', // Force consent to get refresh token
-  });
-
-  return Response.redirect(authUrl);
-}
-
-export async function DELETE(req: NextRequest) {
-  const searchParams = req.nextUrl.searchParams;
-  const userId = searchParams.get('userId');
-
-  if (!userId) {
-    return Response.json({ error: 'User ID required' }, { status: 400 });
-  }
-
+export const GET = route(async (req: NextRequest) => {
+  const userId = requireString(req.nextUrl.searchParams.get('userId'), 'User ID');
   try {
-    deleteOAuthCredential(userId, 'google');
-    return Response.json({ success: true, message: 'Google account disconnected' });
+    const { client } = await createBaseGoogleOAuth2Client();
+    const authUrl = client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES,
+      state: userId,
+      prompt: 'consent',
+    });
+    return Response.redirect(authUrl);
   } catch (error) {
-    console.error('Error disconnecting Google:', error);
-    return Response.json({ error: 'Failed to disconnect Google account' }, { status: 500 });
+    console.error('Google OAuth client configuration missing:', error);
+    throw new ApiError(503, 'Google OAuth client is not configured');
   }
-}
+});
+
+export const DELETE = route((req: NextRequest) => {
+  const userId = requireString(req.nextUrl.searchParams.get('userId'), 'User ID');
+  deleteOAuthCredential(userId, 'google');
+  return { success: true, message: 'Google account disconnected' };
+});

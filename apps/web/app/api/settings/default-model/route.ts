@@ -1,55 +1,29 @@
 import { NextRequest } from 'next/server';
-import { getUserById, getUserModelDefaults, updateUserModelDefaults } from '@/lib/db';
+import { getUserModelDefaults, updateUserModelDefaults } from '@/lib/db';
+import { route, requireUser, requireString, readJson } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 const DEFAULT_MODEL = 'anthropic/claude-haiku-4.5';
 const DEFAULT_VARIANT = 'floor';
 
-export async function GET(req: NextRequest) {
-  try {
-    const searchParams = req.nextUrl.searchParams;
-    const userId = searchParams.get('userId');
+export const GET = route((req: NextRequest) => {
+  const user = requireUser(req.nextUrl.searchParams.get('userId'));
+  const defaults = getUserModelDefaults(user.id);
+  return {
+    model: defaults.model || process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+    routingVariant: defaults.routingVariant || process.env.OPENROUTER_ROUTING_VARIANT || DEFAULT_VARIANT,
+  };
+});
 
-    if (!userId) {
-      return Response.json({ error: 'User ID required' }, { status: 400 });
-    }
-
-    const user = getUserById(userId);
-    if (!user) {
-      return Response.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const defaults = getUserModelDefaults(userId);
-
-    return Response.json({
-      model: defaults.model || process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
-      routingVariant: defaults.routingVariant || process.env.OPENROUTER_ROUTING_VARIANT || DEFAULT_VARIANT,
-    });
-  } catch (error) {
-    console.error('Error loading default model:', error);
-    return Response.json({ error: 'Failed to load default model' }, { status: 500 });
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const { userId, model, routingVariant } = await req.json();
-
-    if (!userId || typeof model !== 'string') {
-      return Response.json({ error: 'User ID and model required' }, { status: 400 });
-    }
-
-    const user = getUserById(userId);
-    if (!user) {
-      return Response.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    updateUserModelDefaults(userId, model, typeof routingVariant === 'string' ? routingVariant : null);
-
-    return Response.json({ success: true });
-  } catch (error) {
-    console.error('Error saving default model:', error);
-    return Response.json({ error: 'Failed to save default model' }, { status: 500 });
-  }
-}
+export const POST = route(async (req: NextRequest) => {
+  const body = await readJson<{ userId: string; model: string; routingVariant?: string }>(req);
+  const user = requireUser(body.userId);
+  const model = requireString(body.model, 'Model');
+  const routingVariant =
+    typeof body.routingVariant === 'string' && body.routingVariant.trim().length > 0
+      ? body.routingVariant.trim()
+      : null;
+  updateUserModelDefaults(user.id, model, routingVariant);
+  return { success: true };
+});

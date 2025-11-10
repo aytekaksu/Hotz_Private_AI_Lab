@@ -63,6 +63,7 @@ The server calls `streamText` with `stopWhen: [stepCountIs(8)]`, allowing up to 
 
 ## Persistence & Conversation State
 - SQLite stores users, conversations, messages, attachments, and OAuth credentials.
+- The runtime exclusively uses Bun's built-in `bun:sqlite` driver; there is no Node-specific fallback.
 - The chat route persists the last assistant text and updates conversation titles based on first user messages.
 
 ## Tricky Parts & Tips

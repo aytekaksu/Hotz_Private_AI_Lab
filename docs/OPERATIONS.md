@@ -51,33 +51,48 @@ GTASKS_TIMEOUT_MS=15000
 ## Build & Deploy
 
 ```bash
-docker compose build web
+docker compose build web          # add --no-cache for a clean rebuild
 docker compose up -d
 ```
 
 Quick Deploy Script
 ```
-npm run deploy
+bun run deploy            # bun run deploy --clean to disable Docker cache
 ```
+- Optionally run `bun run verify` first to lint + type-check outside Docker
+- Uses Docker Buildx (auto-installed via `bun run deploy` or `bun run setup:buildx`) with a persisted cache in `.docker/cache` to accelerate production builds
 - Builds the `web` image (Next.js app)
 - Restarts only the `web` service
 - Executes DB migrations against `./data/sqlite/app.db` (idempotent)
 - Prints `docker compose ps` and performs a lightweight `/api/health` check
+- Uses Bun to install workspace dependencies before building; clean builds remain available with `--clean`
 
-Script location: `scripts/deploy.sh`
+Script location: `scripts/deploy.ts` (TypeScript Bun CLI invoked via `bun run deploy`)
 
 Prereqs
+- Bun 1.3.2+ installed on the host (deploy script and tooling run with Bun)
 - `.env` configured for production (see Configuration)
-- Docker and docker compose installed
+- Docker, docker compose, and the Docker Buildx CLI plugin (install via `bun run setup:buildx` or allow `bun run deploy` to bootstrap it)
 - Caddy is already running via `docker compose up -d` with a valid `Caddyfile`
 
 Database migrations can be run outside the container (or provided as a task inside a CI job):
 
 ```bash
-DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db npm run db:migrate
+DATABASE_URL=file:///root/Hotz_AI_Lab/data/sqlite/app.db bun run db:migrate
 ```
 
 > **Note:** Always run the migration command above immediately after pulling new code (and before testing OAuth integrations). Missing schema updates—such as the `account_email` column on `oauth_credentials`—can silently break Google Calendar/Tasks tool calls even when tokens refresh successfully.
+
+### Bun Automation Scripts
+All operational helpers now live under `scripts/*.ts` and are executed with `bun run <script>`:
+
+- `bun run deploy` — orchestrates Buildx image builds, service restarts, migrations, and health checks.
+- `bun run backup` — stops services, snapshots `data/sqlite` + `.env`, restarts containers, and prunes backups older than 7 days (configurable via `BACKUP_DIR`/`BACKUP_RETENTION_DAYS`).
+- `bun run restore /path/to/backup.tar.gz` — shuts down compose services, extracts the tarball at `/`, and brings the stack back up.
+- `bun run provision:tls` — rewrites `Caddyfile` for the current `INTERNAL_DOMAIN`/`ACME_EMAIL`, optionally wiring the Cloudflare DNS plugin, then restarts `caddy`.
+- `bun run setup:buildx` — installs or refreshes the Docker Buildx CLI plugin; `bun run deploy` calls this automatically when needed.
+- `bun run bootstrap <domain> [acme-email]` — post-clone convenience helper that updates `.env`, installs workspace deps, ensures Buildx, runs the deploy pipeline, and restarts `caddy` for the provided domain (falls back to `ACME_EMAIL` from the environment when the optional argument is omitted).
+- `scripts/install.sh <domain>` — end-to-end VPS installer that handles apt packages, Bun, Docker, cloning the repo (optionally accepts `GITHUB_USER` + `GITHUB_PAT` env vars for private access; otherwise assumes the repo is temporarily public), and invokes the bootstrap CLI. It defaults the ACME email to `ops@example.com`; override by setting `ACME_EMAIL` (or passing a second argument) if you want renewal notifications delivered elsewhere. Fetch the script via the GitHub Raw API using the same credentials you use for `git clone`.
 
 ## Logs & Troubleshooting
 
@@ -101,9 +116,16 @@ Common issues:
 
 ## Backups
 
-SQLite lives in `./data/sqlite` (mounted into the container). Include this directory in your backup routine. The `deployment-backup/*` folder contains previously captured deployment info; do not rely on it as a live backup.
+SQLite lives in `./data/sqlite` (mounted into the container). Include this directory in your backup routine. Use `bun run backup` (driven by `scripts/backup.ts`) to automate the process: it stops services, archives `data/sqlite` and `.env` into `/opt/backups/ai-assistant/backup_<timestamp>.tar.gz` by default, restarts the stack, and trims backups older than 7 days. Restore from any generated archive with `bun run restore /path/to/backup_<timestamp>.tar.gz`.
+
+The `deployment-backup/*` folder contains previously captured deployment info; do not rely on it as a live backup.
 
 ## Security
 - Secrets encrypted at rest (AES‑256‑GCM) using `APP_ENCRYPTION_KEY`.
 - OAuth tokens stored encrypted; rotate keys periodically.
 - Ensure TLS is correctly provisioned by Caddy; keep tokens out of logs.
+
+## Server-only dependencies
+- Heavy SDKs that never run in the browser (Google APIs, Notion, PDF/DOCX parsing, etc.) must be listed under `experimental.serverComponentsExternalPackages` in `apps/web/next.config.js`.
+- When adding a new backend-only dependency, append it to that array so Next.js skips bundling it during `next build`, keeping clean builds fast.
+- The root layout sets `export const dynamic = 'force-dynamic'`; mirror that behavior for any new top-level layouts that depend on request-specific state so static generation stays opt-in.
