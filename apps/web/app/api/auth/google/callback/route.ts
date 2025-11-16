@@ -5,13 +5,25 @@ import { createBaseGoogleOAuth2Client } from '@/lib/google-auth';
 
 export const runtime = 'nodejs';
 
-const baseUrl = (process.env.NEXTAUTH_URL || process.env.APP_PUBLIC_URL || 'http://localhost:3000').trim();
-const SETTINGS_URL = `${baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl}/settings`;
-const redirect = (query: string) => Response.redirect(`${SETTINGS_URL}?${query}`);
+const resolveBaseUrl = (req: NextRequest): string => {
+  const candidates = [
+    req.nextUrl.origin,
+    process.env.NEXTAUTH_URL,
+    process.env.APP_PUBLIC_URL,
+    'http://localhost:3000',
+  ];
+  for (const raw of candidates) {
+    const trimmed = raw?.trim();
+    if (trimmed) {
+      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+    }
+  }
+  return 'http://localhost:3000';
+};
 
-const loadOAuthClient = async () => {
+const loadOAuthClient = async (redirectBase?: string) => {
   try {
-    return (await createBaseGoogleOAuth2Client()).client;
+    return (await createBaseGoogleOAuth2Client({ redirectBase })).client;
   } catch (error) {
     console.error('Google OAuth client configuration missing:', error);
     throw new Error('GOOGLE_CLIENT_NOT_CONFIGURED');
@@ -30,6 +42,9 @@ const fetchAccountEmail = async (oauth2Client: any) => {
 };
 
 export async function GET(req: NextRequest) {
+  const baseUrl = resolveBaseUrl(req);
+  const settingsUrl = `${baseUrl}/settings`;
+  const redirect = (query: string) => Response.redirect(`${settingsUrl}?${query}`);
   const params = req.nextUrl.searchParams;
   if (params.get('error')) {
     return redirect('error=google_auth_failed');
@@ -42,7 +57,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const oauth2Client = await loadOAuthClient();
+    const oauth2Client = await loadOAuthClient(baseUrl);
     const { tokens } = await oauth2Client.getToken(code);
     if (!tokens.access_token) {
       throw new Error('No access token received');

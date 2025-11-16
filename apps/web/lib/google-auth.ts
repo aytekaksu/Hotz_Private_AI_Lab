@@ -34,12 +34,22 @@ const readEnvConfig = (): GoogleOAuthConfig | null => {
 const resolveGoogleOAuthConfig = async (): Promise<GoogleOAuthConfig | null> =>
   (await getGoogleOAuthConfig()) ?? readEnvConfig();
 
-const resolveRedirectBase = (): string => {
-  const base = (process.env.APP_PUBLIC_URL || process.env.NEXTAUTH_URL || '').trim();
-  if (!base) {
+const normalizeBaseUrl = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+};
+
+const resolveRedirectBase = (override?: string): string => {
+  const candidate =
+    normalizeBaseUrl(override) ||
+    normalizeBaseUrl(process.env.APP_PUBLIC_URL) ||
+    normalizeBaseUrl(process.env.NEXTAUTH_URL);
+  if (!candidate) {
     throw new Error('APP_PUBLIC_URL or NEXTAUTH_URL must be configured for Google OAuth redirect handling.');
   }
-  return base.endsWith('/') ? base.slice(0, -1) : base;
+  return candidate;
 };
 
 const persistTokens = async (
@@ -71,9 +81,9 @@ export const resolveGoogleOAuthConfigStrict = async (): Promise<GoogleOAuthConfi
   return config;
 };
 
-export async function createBaseGoogleOAuth2Client() {
+export async function createBaseGoogleOAuth2Client(options?: { redirectBase?: string }) {
   const config = await resolveGoogleOAuthConfigStrict();
-  const redirectUri = `${resolveRedirectBase()}/api/auth/google/callback`;
+  const redirectUri = `${resolveRedirectBase(options?.redirectBase)}/api/auth/google/callback`;
   const client = new google.auth.OAuth2(config.clientId, config.clientSecret, redirectUri);
   return { client, config, redirectUri };
 }
