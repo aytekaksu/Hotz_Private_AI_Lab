@@ -29,7 +29,7 @@ Key components:
 - Server‑side filtering by the requested window.
 - Output shaping defaults:
   - Minimal fields: `id`, `title`, `start`, `end`.
-  - `max_results` (default 20, bounded by `GCAL_MAX_EVENTS`).
+  - `max_results` (default 100, bounded by `GCAL_MAX_EVENTS`).
   - `truncate_description` (default 140 or `GCAL_MAX_EVENT_DESCRIPTION`).
   - Optional flags to include `description`, `location`, `attendees`, `link`.
   - Pagination via `page_token` and `next_page_token`.

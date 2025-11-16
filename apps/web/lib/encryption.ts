@@ -13,7 +13,8 @@ const toUint8Array = (buffer: Buffer): Uint8Array =>
   new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
 const deriveKeyBytes = async (buffer: Buffer): Promise<Uint8Array> => {
-  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  const digestInput = viewToArrayBuffer(toUint8Array(buffer));
+  const digest = await crypto.subtle.digest('SHA-256', digestInput);
   return new Uint8Array(digest).subarray(0, KEY_LENGTH_BYTES);
 };
 

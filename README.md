@@ -101,7 +101,7 @@ After creating a Notion private integration, copy the secret into Settings → C
 
 Calendar output shaping (token control)
 ```env
-GCAL_MAX_EVENTS=50                  # hard upper bound
+GCAL_MAX_EVENTS=100                 # hard upper bound
 GCAL_MAX_EVENT_DESCRIPTION=140      # default truncation
 ```
 

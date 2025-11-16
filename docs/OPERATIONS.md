@@ -42,7 +42,7 @@ Use Settings → Connected Services → Notion to paste the private integration 
 
 Token Controls
 ```env
-GCAL_MAX_EVENTS=50
+GCAL_MAX_EVENTS=100
 GCAL_MAX_EVENT_DESCRIPTION=140
 GTASKS_MAX_TASKS=50
 GTASKS_TIMEOUT_MS=15000

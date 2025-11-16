@@ -15,7 +15,7 @@ type ListEventsParams = {
   calendar_id?: string;
 
   // Output shaping controls (defaults keep output small)
-  max_results?: number;           // default 20, hard cap by GCAL_MAX_EVENTS/env
+  max_results?: number;           // default 100, hard cap by GCAL_MAX_EVENTS/env
   include_description?: boolean;  // default false
   include_location?: boolean;     // default false
   include_attendees?: boolean;    // default false
@@ -55,14 +55,9 @@ export async function listCalendarEvents(userId: string, params: ListEventsParam
     const calendar = await getCalendarClient(userId);
     const timeMin = normalizeDateValue(params.start_date ?? params.start, 'start');
     const timeMax = normalizeDateValue(params.end_date ?? params.end, 'end');
-    const envMaxEvents = Number(process.env.GCAL_MAX_EVENTS ?? 50);
-    const maxEvents = Math.max(
-      1,
-      Math.min(
-        envMaxEvents,
-        params.max_results != null ? Number(params.max_results) || 0 : 20,
-      ),
-    );
+    const envMaxEvents = Number(process.env.GCAL_MAX_EVENTS ?? 100);
+    const requestedMax = params.max_results != null ? Number(params.max_results) || 0 : envMaxEvents;
+    const maxEvents = Math.max(1, Math.min(envMaxEvents, requestedMax));
     const maxDescriptionLength = Number(
       params.truncate_description ?? process.env.GCAL_MAX_EVENT_DESCRIPTION ?? 140,
     );

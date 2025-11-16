@@ -64,7 +64,7 @@ function extractGoogleClientConfig(json: any): GoogleOAuthConfig {
 
 export const GET = route(async () => coerceSummary(await getGoogleOAuthConfigSummary()));
 
-const isFileLike = (value: FormDataEntryValue | null): value is Blob => {
+const isFileLike = (value: unknown): value is Blob => {
   if (!value || typeof value !== 'object') return false;
   if (typeof File !== 'undefined' && value instanceof File) {
     return true;
@@ -79,10 +79,11 @@ export const POST = route(async (req: NextRequest) => {
   }
 
   const formData = await req.formData();
-  const file = formData.get('file');
-  if (!isFileLike(file)) {
+  const fileEntry = formData.get('file');
+  if (!isFileLike(fileEntry)) {
     throw new ApiError(400, 'Missing JSON file input named "file"');
   }
+  const file = fileEntry;
 
   const text = await file.text();
   let parsed: unknown;

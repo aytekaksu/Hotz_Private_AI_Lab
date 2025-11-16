@@ -26,9 +26,29 @@ const formatToolName = (rawName: string) =>
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+const parseConversationTimestamp = (timestamp?: string | null) => {
+  if (typeof timestamp !== 'string') return null;
+  const sanitized = timestamp.trim();
+  if (!sanitized) return null;
+
+  const normalized = sanitized.replace(' ', 'T');
+  const hasTimeZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
+  const isoLike = hasTimeZone ? normalized : `${normalized}Z`;
+  const parsed = new Date(isoLike);
+  if (Number.isNaN(parsed.getTime())) {
+    const fallback = new Date(timestamp);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+  return parsed;
+};
+
 const getConversationDate = (conversation: any) => {
   const timestamp = conversation?.updated_at || conversation?.created_at;
-  return timestamp ? new Date(timestamp) : new Date();
+  return parseConversationTimestamp(timestamp) ?? new Date();
+};
+
+const getConversationCreatedDate = (conversation: any) => {
+  return parseConversationTimestamp(conversation?.created_at) ?? getConversationDate(conversation);
 };
 
 const getRecencyLabel = (date: Date, now: Date) => {
@@ -41,11 +61,20 @@ const getRecencyLabel = (date: Date, now: Date) => {
 };
 
 const formatRelativeDate = (date: Date) => {
+  let userTimeZone: string | undefined;
+  if (typeof Intl !== 'undefined') {
+    try {
+      userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      userTimeZone = undefined;
+    }
+  }
   return date.toLocaleString(undefined, {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: userTimeZone,
   });
 };
 
@@ -83,7 +112,7 @@ export default function Home() {
   const pendingToolInvocationsRef = useRef<Array<{ id: string; toolName: string; state: string; args?: any }>>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesViewportRef = useRef<HTMLElement | null>(null);
   const currentConversationIdRef = useRef<string | null>(null);
   const currentAgentSlugRef = useRef<string | null>(null);
   const rootForwardedRef = useRef<boolean>(false);
@@ -824,7 +853,12 @@ export default function Home() {
   };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages]);
 
   // Attach any queued tool invocations to the latest assistant message once it exists
@@ -865,7 +899,11 @@ export default function Home() {
   } = useMemo(() => {
     const now = new Date();
     const filtered = conversations
-      .map((conversation) => ({ conversation, date: getConversationDate(conversation) }))
+      .map((conversation) => ({
+        conversation,
+        date: getConversationDate(conversation),
+        createdDate: getConversationCreatedDate(conversation),
+      }))
       .filter(({ conversation }) => {
         if (!searchTerm.trim()) return true;
         const title = conversation.title || 'Untitled conversation';
@@ -883,9 +921,9 @@ export default function Home() {
       Older: [],
     };
 
-    limited.forEach(({ conversation, date }) => {
+    limited.forEach(({ conversation, date, createdDate }) => {
       const label = getRecencyLabel(date, now);
-      sections[label].push({ ...conversation, date });
+      sections[label].push({ ...conversation, date, createdDate });
     });
 
     return {
@@ -1057,7 +1095,9 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          <p className="mt-1 text-xs text-muted">{formatRelativeDate(conversation.date)}</p>
+                          <p className="mt-1 text-xs text-muted">
+                            {formatRelativeDate(conversation.createdDate ?? conversation.date)}
+                          </p>
                         </div>
                         <button
                           type="button"
@@ -1332,7 +1372,7 @@ export default function Home() {
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
       <a
         href="/settings"
-        className="fixed right-4 top-4 z-50 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-4 py-2 text-sm text-foreground shadow transition hover:border-accent hover:text-accent"
+        className="fixed right-4 top-4 z-50 hidden md:inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-4 py-2 text-sm text-foreground shadow transition hover:border-accent hover:text-accent"
         aria-label="Open Settings"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
@@ -1344,7 +1384,7 @@ export default function Home() {
       {isMobile ? (
         <>
           {sidebarOpen && (
-            <div className="fixed inset-0 z-30 bg-black/50" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+            <div className="fixed inset-0 z-20 bg-black/50" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
           )}
           <div
             className={`fixed inset-y-0 left-0 z-40 w-[min(22rem,90vw)] transform transition-transform duration-200 lg:hidden ${
@@ -1392,9 +1432,56 @@ export default function Home() {
         </div>
       )}
 
-      <div className="flex h-full flex-1 min-w-0 flex-col overflow-hidden">
+      <div className="flex h-full flex-1 min-w-0 flex-col md:overflow-hidden">
+        <header className="sticky top-0 left-0 z-30 flex items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 py-4 text-sm shadow-sm backdrop-blur md:hidden">
+          <div className="flex flex-1 items-center gap-3 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((open) => !open)}
+              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-border bg-card/80 text-foreground/80 transition hover:text-foreground"
+              aria-label="Toggle navigation menu"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                <path d="M4 7h16M4 12h16M4 17h16" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase tracking-[0.45em] text-muted">Workspace</p>
+              <p className="truncate text-base font-semibold text-foreground" title={activeConversationTitle}>
+                {activeConversationTitle}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={startNewChat}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/80 px-3 py-1.5 text-xs font-semibold text-foreground/80 transition hover:border-accent hover:text-accent"
+            >
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5">
+                <path d="M10 4.167v11.666M4.167 10h11.666" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              New
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/settings')}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/80 text-foreground/80 transition hover:text-foreground"
+              aria-label="Open settings"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                <path d="M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" strokeWidth="1.6" />
+                <path d="M20 12a7.9 7.9 0 0 0-.2-1.7l1.9-1.1-1.9-3.3-2.2.9a7.9 7.9 0 0 0-1.5-1l.4-2.3h-3.8l.4 2.3a7.9 7.9 0 0 0-1.5 1l-2.2-.9L5.3 9.2l1.9 1.1A7.9 7.9 0 0 0 7 12c0 .6.1 1.1.2 1.7l-1.9 1.1 1.9 3.3 2.2-.9a7.9 7.9 0 0 0 1.5 1l-.4 2.3h3.8l-.4-2.3a7.9 7.9 0 0 0 1.5-1l2.2.9 1.9-3.3-1.9-1.1c.1-.6.2-1.1.2-1.7Z" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </header>
 
-        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-10">
+        <main
+          ref={messagesViewportRef}
+          className="flex-1 overflow-y-auto px-4 py-4 sm:py-6 md:px-10"
+          style={{ paddingBottom: isMobile ? '12rem' : undefined }}
+        >
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
             {messages.length === 0 ? (
               <div className="mt-10 rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center shadow-sm">
@@ -1420,7 +1507,7 @@ export default function Home() {
                   return (
                     <div key={message.id ?? idx} className={`flex w-full ${isUser ? 'justify-end' : 'justify-center'}`}>
                       {isUser ? (
-                        <div className="max-w-[80%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur">
+                        <div className="max-w-[90%] sm:max-w-[80%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur">
                           <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
                           {attachmentsForMessage.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-2">
@@ -1480,13 +1567,18 @@ export default function Home() {
                     </div>
                   </div>
                 )}
-                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
         </main>
 
-        <footer className="border-t border-border bg-background/85 px-4 py-6 md:px-8">
+        <footer
+          className={`w-full border-t border-border bg-background/90 px-4 pt-4 sm:px-6 sm:pt-6 md:px-8 ${isMobile ? 'fixed inset-x-0 bottom-0 z-30 shadow-[0_-18px_40px_rgba(0,0,0,0.45)]' : ''}`}
+          style={{
+            paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+            ...(isMobile ? { backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' } : {}),
+          }}
+        >
           <div className="mx-auto w-full max-w-4xl">
             <form ref={formRef} onSubmit={handleFormSubmit} className="space-y-3">
               {attachments.length > 0 && (
@@ -1520,8 +1612,8 @@ export default function Home() {
                   spellCheck={false}
                 />
               </div>
-              <div className="relative flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+              <div className="relative flex flex-wrap items-center gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted transition hover:text-foreground">
                     <input
                       type="file"
@@ -1549,7 +1641,7 @@ export default function Home() {
                   {isToolsOpen && (
                     <div
                       ref={toolsPopoverRef}
-                      className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-2xl border border-border bg-background p-3 shadow-xl"
+                      className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-border bg-background p-3 shadow-xl sm:w-80"
                     >
                       <p className="px-1 pb-2 text-xs text-muted">Conversation apps</p>
                       <div className="space-y-2">
@@ -1627,7 +1719,7 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="ml-auto flex items-center gap-2 sm:ml-0 sm:gap-3">
                   {isUploading && <span className="text-xs text-muted">Uploading…</span>}
                   {error && !isLoading && (
                     <span className="text-xs text-foreground">{error.message ?? 'An error occurred.'}</span>
@@ -1635,7 +1727,7 @@ export default function Home() {
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground shadow transition hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:py-2 sm:text-sm"
                   >
                     {isLoading ? (
                       <>

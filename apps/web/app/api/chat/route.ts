@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider } from '@/lib/db';
+import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -81,21 +81,21 @@ const toDataUrlWithResize = async (
       return null;
     }
     const arrayBuffer = await file.arrayBuffer();
-    let buffer = Buffer.from(arrayBuffer);
+    let buffer = Buffer.from(new Uint8Array(arrayBuffer));
     try {
       const img = sharp(buffer);
       const metadata = await img.metadata();
       const width = metadata.width ?? 0;
       const height = metadata.height ?? 0;
       if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-        buffer = await img
+        buffer = (await img
           .resize({
             width: MAX_IMAGE_DIMENSION,
             height: MAX_IMAGE_DIMENSION,
             fit: 'inside',
             withoutEnlargement: true,
           })
-          .toBuffer();
+          .toBuffer()) as typeof buffer;
       }
     } catch (error) {
       console.error('Image metadata/resize failed:', path, error);
@@ -149,20 +149,36 @@ export async function POST(req: Request) {
     
     // Determine conversation ID
     let currentConversationId = conversationId;
+    let resolvedAgentId: string | null = agentId || null;
+    let conversationRecord: ReturnType<typeof getConversationById> | null = null;
     
     // If no conversation ID, create a new conversation
     if (!currentConversationId) {
       const firstMessage = extractMessageText(incomingMessages[0]) || 'New Conversation';
       const title = firstMessage.substring(0, 50);
-      const conversation = createConversationWithAgent(userId, title, agentId || null);
+      const conversation = createConversationWithAgent(userId, title, resolvedAgentId);
       currentConversationId = conversation.id;
+      conversationRecord = conversation;
+      resolvedAgentId = conversation.agent_id || resolvedAgentId;
       
       // Initialize default tools (all disabled) for new conversation or inherit from agent
-      if (agentId) {
-        try { initializeToolsFromAgent(currentConversationId, agentId); } catch {}
+      if (resolvedAgentId) {
+        try { initializeToolsFromAgent(currentConversationId, resolvedAgentId); } catch {}
       } else {
         initializeDefaultTools(currentConversationId);
       }
+    }
+
+    if (!conversationRecord && currentConversationId) {
+      conversationRecord = getConversationById(currentConversationId);
+    }
+
+    if (!conversationRecord) {
+      return new Response('Conversation not found', { status: 404 });
+    }
+
+    if (!resolvedAgentId && conversationRecord.agent_id) {
+      resolvedAgentId = conversationRecord.agent_id;
     }
     
     if (incomingMessages.length === 0) {
@@ -324,9 +340,9 @@ export async function POST(req: Request) {
     
     // Add system tool conditionally based on agent defaults
     let allowDateTimeTool = true;
-    if (agentId) {
+    if (resolvedAgentId) {
       try {
-        const agentToolDefaults = getAgentTools(agentId);
+        const agentToolDefaults = getAgentTools(resolvedAgentId);
         const entry = agentToolDefaults.find((t) => t.tool_name === 'get_current_datetime');
         if (entry && entry.enabled === false) {
           allowDateTimeTool = false;
@@ -449,8 +465,8 @@ You also have access to the get_current_datetime tool if you need to get the cur
     // Merge agent prompts if agent is present
     let agentSlug: string | undefined;
     let includeGuidelines = true;
-    if (agentId) {
-      const agent = getAgentById(agentId);
+    if (resolvedAgentId) {
+      const agent = getAgentById(resolvedAgentId);
       if (agent) {
         agentSlug = agent.slug;
         const base = agent.override_system_prompt?.trim();
@@ -577,7 +593,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
     return result.toUIMessageStreamResponse({
       headers: {
         'X-Conversation-Id': currentConversationId,
-        ...(agentId ? { 'X-Agent-Slug': agentSlug || '' } : {}),
+        ...(resolvedAgentId ? { 'X-Agent-Slug': agentSlug || '' } : {}),
       },
     });
   } catch (error) {
