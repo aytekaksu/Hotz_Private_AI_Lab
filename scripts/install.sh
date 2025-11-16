@@ -10,6 +10,7 @@ Environment variables:
   GITHUB_PAT    Personal access token with repo scope (required)
   ACME_EMAIL    Optional override for TLS provisioning email (defaults to ops@example.com)
   APP_DIR       Target install directory (default: ~/Hotz_Private_AI_Lab)
+  REPO_BRANCH   Git branch to clone (default: master)
 EOF
 }
 
@@ -39,6 +40,7 @@ DOMAIN_HOST="${DOMAIN_HOST#https://}"
 DOMAIN_HOST="${DOMAIN_HOST%%/*}"
 
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
+REPO_BRANCH="${REPO_BRANCH:-master}"
 
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
@@ -76,13 +78,13 @@ fi
 echo "[install] Linking Bun CLI to /usr/local/bin (requires sudo)…"
 sudo install -m 0755 "$BUN_BIN" /usr/local/bin/bun
 
-echo "[install] Cloning Hotz_Private_AI_Lab into $APP_DIR…"
+echo "[install] Cloning Hotz_Private_AI_Lab ($REPO_BRANCH) into $APP_DIR…"
 rm -rf "$APP_DIR"
 if [[ -n "${GITHUB_USER:-}" && -n "${GITHUB_PAT:-}" ]]; then
-  git clone --branch clean-install "https://${GITHUB_USER}:${GITHUB_PAT}@github.com/aytekaksu/Hotz_Private_AI_Lab.git" "$APP_DIR"
+  git clone --branch "$REPO_BRANCH" "https://${GITHUB_USER}:${GITHUB_PAT}@github.com/aytekaksu/Hotz_Private_AI_Lab.git" "$APP_DIR"
 else
   echo "[install] GITHUB_USER/PAT not provided; cloning anonymously (requires public repository)."
-  git clone --branch clean-install https://github.com/aytekaksu/Hotz_Private_AI_Lab.git "$APP_DIR"
+  git clone --branch "$REPO_BRANCH" https://github.com/aytekaksu/Hotz_Private_AI_Lab.git "$APP_DIR"
 fi
 cd "$APP_DIR"
 
