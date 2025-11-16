@@ -115,23 +115,10 @@ ensure_env_value() {
   ensure_env_var "$key" "$value"
 }
 
-perl -0pi -e 's|^NEXTAUTH_URL=.*$|NEXTAUTH_URL='$DOMAIN'|m' .env 2>/dev/null || true
-perl -0pi -e 's|^APP_PUBLIC_URL=.*$|APP_PUBLIC_URL='$DOMAIN'|m' .env 2>/dev/null || true
-perl -0pi -e 's|^INTERNAL_DOMAIN=.*$|INTERNAL_DOMAIN='$DOMAIN_HOST'|m' .env 2>/dev/null || true
-perl -0pi -e 's|^ACME_EMAIL=.*$|ACME_EMAIL='$ACME_EMAIL_INPUT'|m' .env 2>/dev/null || true
-
-if ! grep -q '^NEXTAUTH_URL=' .env; then
-  echo "NEXTAUTH_URL=$DOMAIN" >> .env
-fi
-if ! grep -q '^APP_PUBLIC_URL=' .env; then
-  echo "APP_PUBLIC_URL=$DOMAIN" >> .env
-fi
-if ! grep -q '^INTERNAL_DOMAIN=' .env; then
-  echo "INTERNAL_DOMAIN=$DOMAIN_HOST" >> .env
-fi
-if ! grep -q '^ACME_EMAIL=' .env; then
-  echo "ACME_EMAIL=$ACME_EMAIL_INPUT" >> .env
-fi
+ensure_env_var NEXTAUTH_URL "$DOMAIN"
+ensure_env_var APP_PUBLIC_URL "$DOMAIN"
+ensure_env_var INTERNAL_DOMAIN "$DOMAIN_HOST"
+ensure_env_var ACME_EMAIL "$ACME_EMAIL_INPUT"
 
 if ! grep -q '^APP_ENCRYPTION_KEY=' .env || [[ -z "$(grep -m1 '^APP_ENCRYPTION_KEY=' .env | cut -d= -f2-)" ]]; then
   GENERATED_KEY=$(openssl rand -hex 32)
