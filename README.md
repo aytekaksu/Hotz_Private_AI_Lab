@@ -90,6 +90,7 @@ Google OAuth
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 ```
+After changing domains or provisioning a new environment, update your Google Cloud OAuth client so it includes the new `https://<domain>/api/auth/google/callback` redirect. Download the refreshed JSON and upload it in Settings → Connected Services → Google (or set `GOOGLE_CLIENT_ID/SECRET` in `.env`). Google rejects sign-ins when the host in the redirect URI differs from what is stored in the OAuth client.
 
 Notion integration secret (private integrations)
 ```env

@@ -40,6 +40,8 @@ NOTION_INTEGRATION_SECRET=...
 
 Use Settings → Connected Services → Notion to paste the private integration secret at runtime if you don't set it via environment variables.
 
+**Important:** whenever you change the public domain (e.g., moving from `beta.example.com` to `beta2.example.com`), add the matching `https://<domain>/api/auth/google/callback` redirect URI to your Google Cloud OAuth client. Download the updated credentials JSON and upload it under Settings → Connected Services → Google so the backend uses the same redirect base. Google will return `invalid_request` unless the deployed host matches the OAuth client's redirect list.
+
 Token Controls
 ```env
 GCAL_MAX_EVENTS=100
