@@ -7,9 +7,9 @@ export const runtime = 'nodejs';
 
 const resolveBaseUrl = (req: NextRequest): string => {
   const candidates = [
-    req.nextUrl.origin,
-    process.env.NEXTAUTH_URL,
     process.env.APP_PUBLIC_URL,
+    process.env.NEXTAUTH_URL,
+    req.nextUrl.origin,
     'http://localhost:3000',
   ];
   for (const raw of candidates) {

@@ -13,7 +13,7 @@ const SCOPES = [
 export const GET = route(async (req: NextRequest) => {
   const userId = requireString(req.nextUrl.searchParams.get('userId'), 'User ID');
   try {
-    const { client } = await createBaseGoogleOAuth2Client({ redirectBase: req.nextUrl.origin });
+    const { client } = await createBaseGoogleOAuth2Client();
     const authUrl = client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
