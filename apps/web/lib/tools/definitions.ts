@@ -105,6 +105,20 @@ const toolDescriptors = [
     }),
   },
   {
+    name: 'search_notion',
+    displayName: 'Search Workspace',
+    description: 'Search Notion for pages or databases by name. REQUIRED for finding Page IDs when given a name.',
+    category: 'Notion',
+    authProvider: 'notion',
+    parameters: z.object({
+      query: z.string().describe('Search text, e.g., page or database name'),
+      filter: z.enum(['page', 'database']).optional().describe('Limit search to a specific object type'),
+      page_size: z.number().int().positive().max(100).optional().describe('Max results to return (default 10, up to 100)'),
+      start_cursor: z.string().optional().describe('Pagination cursor from a previous search'),
+      sort_direction: z.enum(['ascending', 'descending']).optional().describe('Sort by last edited time'),
+    }),
+  },
+  {
     name: 'query_notion_database',
     displayName: 'Query Database',
     description: 'Search and filter pages in a Notion database. Use this to find specific pages, view database contents, or query with filters.',

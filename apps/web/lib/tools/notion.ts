@@ -12,6 +12,84 @@ async function getNotionClient(userId: string) {
   return new Client({ auth: authToken });
 }
 
+function extractPlainTextTitle(from: any): string | null {
+  if (!from) return null;
+
+  // Database objects expose `title`
+  if (Array.isArray(from.title)) {
+    const plain = from.title.map((t: any) => t?.plain_text || t?.text?.content || '').join('').trim();
+    if (plain) return plain;
+  }
+
+  // Page objects expose `properties` with a title type
+  if (from.properties && typeof from.properties === 'object') {
+    const titleProp = Object.values(from.properties as Record<string, any>).find((prop: any) => prop?.type === 'title');
+    if (titleProp && Array.isArray(titleProp.title)) {
+      const plain = titleProp.title.map((t: any) => t?.plain_text || t?.text?.content || '').join('').trim();
+      if (plain) return plain;
+    }
+  }
+
+  return null;
+}
+
+export async function searchNotion(
+  userId: string,
+  params: {
+    query: string;
+    filter?: 'page' | 'database';
+    page_size?: number;
+    start_cursor?: string;
+    sort_direction?: 'ascending' | 'descending';
+  }
+): Promise<any> {
+  try {
+    const notion = await getNotionClient(userId);
+
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Number.isFinite(params.page_size as number) ? Number(params.page_size) : 10),
+    );
+
+    const response = await notion.search({
+      query: params.query,
+      filter: params.filter ? { property: 'object', value: params.filter } : undefined,
+      sort: params.sort_direction
+        ? { direction: params.sort_direction, timestamp: 'last_edited_time' }
+        : undefined,
+      page_size: pageSize,
+      start_cursor: params.start_cursor,
+    });
+
+    const results = response.results.map((item: any) => {
+      const title = extractPlainTextTitle(item);
+      return {
+        id: item.id,
+        object: item.object,
+        title: title || null,
+        url: 'url' in item ? item.url : null,
+        last_edited_time: 'last_edited_time' in item ? (item as any).last_edited_time : null,
+        created_time: 'created_time' in item ? (item as any).created_time : null,
+        parent: 'parent' in item ? (item as any).parent : null,
+      };
+    });
+
+    return {
+      success: true,
+      results,
+      has_more: response.has_more,
+      next_cursor: (response as any).next_cursor ?? null,
+      result_count: results.length,
+    };
+  } catch (error: any) {
+    console.error('Error searching Notion:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to search Notion',
+    };
+  }
+}
+
 export async function queryNotionDatabase(
   userId: string,
   params: {

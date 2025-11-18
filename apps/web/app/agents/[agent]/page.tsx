@@ -9,6 +9,24 @@ import { AgentToolSelector } from '../_components/agent-tool-selector';
 import type { Agent, AgentFormState, ToolItem, UploadInfo } from '../types';
 import { usePersistentUserId } from '@/lib/hooks/usePersistentUserId';
 
+const ensureSearchToolPresent = (tools: ToolItem[]): ToolItem[] => {
+  if (tools.some((t) => t.toolName === 'search_notion')) return tools;
+  const notionBaseline = tools.find((t) => t.category === 'Notion' || t.authProvider === 'notion');
+  return [
+    ...tools,
+    {
+      toolName: 'search_notion',
+      displayName: 'Search Workspace',
+      description: 'Search Notion for pages or databases by name to auto-resolve their IDs.',
+      category: 'Notion',
+      authProvider: 'notion',
+      available: notionBaseline?.available ?? true,
+      authConnected: notionBaseline?.authConnected ?? true,
+      enabled: false,
+    },
+  ];
+};
+
 export default function AgentDetailPage() {
   const params = useParams<{ agent: string }>();
   const slug = params?.agent as string;
@@ -35,7 +53,8 @@ export default function AgentDetailPage() {
       if (!userId) return;
       const res = await fetch(`/api/agents/${agentId}/tools?userId=${userId}`);
       const data = await res.json();
-      setTools(Array.isArray(data.tools) ? data.tools : []);
+      const normalized: ToolItem[] = Array.isArray(data.tools) ? data.tools : [];
+      setTools(ensureSearchToolPresent(normalized));
     },
     [userId],
   );

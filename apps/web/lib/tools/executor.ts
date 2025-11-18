@@ -38,8 +38,11 @@ export async function executeTool(
       
       case 'complete_task':
         return await googleTasks.completeTask(userId, args);
-      
+  
       // Notion Tools
+      case 'search_notion':
+        return await notion.searchNotion(userId, args);
+      
       case 'query_notion_database':
         return await notion.queryNotionDatabase(userId, args);
       
@@ -73,7 +76,6 @@ export async function executeTool(
     };
   }
 }
-
 
 
 
