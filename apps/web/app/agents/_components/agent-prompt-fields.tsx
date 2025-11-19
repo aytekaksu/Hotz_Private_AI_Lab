@@ -1,17 +1,18 @@
 'use client';
 
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { DEFAULT_SYSTEM_PROMPT_TEXT } from '@/lib/default-system-prompt';
-import type { AgentFormState, UploadInfo } from '../types';
+import { FileManager } from '@/components/file-manager';
+import type { AgentFormState, ManagedFile, UploadInfo } from '../types';
 
 type AgentPromptFieldsProps = {
   form: AgentFormState;
   setForm: Dispatch<SetStateAction<AgentFormState>>;
   upload: UploadInfo;
   setUpload: (upload: UploadInfo) => void;
-  fileRef: RefObject<HTMLInputElement>;
-  onUploadFile: (file: File) => void | Promise<void>;
   onSystemToolRequired?: () => void;
+  fileManagerRefresh?: number;
+  onFileManagerMutate?: () => void;
 };
 
 export function AgentPromptFields({
@@ -19,9 +20,9 @@ export function AgentPromptFields({
   setForm,
   upload,
   setUpload,
-  fileRef,
-  onUploadFile,
   onSystemToolRequired,
+  fileManagerRefresh,
+  onFileManagerMutate,
 }: AgentPromptFieldsProps) {
   const handleOverrideToggle = (checked: boolean) => {
     if (checked) {
@@ -55,49 +56,25 @@ export function AgentPromptFields({
       <div>
         <label className="block text-sm font-medium text-foreground">Additional Instructions</label>
         <textarea
-          value={form.extraPrompt}
-          onChange={(e) => setForm((p) => ({ ...p, extraPrompt: e.target.value }))}
-          className="mt-2 min-h-[120px] w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-          placeholder="Add optional guidance for this agent"
-        />
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <div className="text-xs text-muted">
-            {upload ? (
-              <span>
-                Document:{' '}
-                <a className="underline" href={`/api/attachments/${upload.id}`} target="_blank" rel="noreferrer">
-                  {upload.name}
-                </a>
-              </span>
-            ) : (
-              <span>Upload a text/PDF/DOCX to prefill.</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {upload && (
-              <button
-                onClick={() => setUpload(null)}
-                className="rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-              >
-                Remove
-              </button>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void onUploadFile(file);
-              }}
-            />
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-            >
-              Upload
-            </button>
-          </div>
+        value={form.extraPrompt}
+        onChange={(e) => setForm((p) => ({ ...p, extraPrompt: e.target.value }))}
+        className="mt-2 min-h-[120px] w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+        placeholder="Add optional guidance for this agent"
+      />
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-muted">Select a custom instructions document from the file manager (one at a time).</p>
+          <FileManager
+            selectedIds={upload ? [upload.id] : []}
+            onSelect={(file: ManagedFile) => {
+              setUpload({ id: file.id, name: file.filename });
+              if (typeof file.text_content === 'string' && file.text_content.trim().length > 0) {
+                setForm((prev) => ({ ...prev, extraPrompt: file.text_content || prev.extraPrompt }));
+              }
+            }}
+            onDeselect={() => setUpload(null)}
+            refreshToken={fileManagerRefresh}
+            onMutate={onFileManagerMutate}
+          />
         </div>
       </div>
 

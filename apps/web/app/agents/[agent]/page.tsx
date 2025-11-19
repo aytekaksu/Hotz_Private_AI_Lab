@@ -2,12 +2,13 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { AgentPromptFields } from '../_components/agent-prompt-fields';
 import { AgentToolSelector } from '../_components/agent-tool-selector';
-import type { Agent, AgentFormState, ToolItem, UploadInfo } from '../types';
+import type { Agent, AgentFormState, ManagedFile, ToolItem, UploadInfo } from '../types';
 import { usePersistentUserId } from '@/lib/hooks/usePersistentUserId';
+import { FileManager } from '@/components/file-manager';
 
 const ensureSearchToolPresent = (tools: ToolItem[]): ToolItem[] => {
   if (tools.some((t) => t.toolName === 'search_notion')) return tools;
@@ -42,8 +43,9 @@ export default function AgentDetailPage() {
     overridePrompt: '',
   });
   const [upload, setUpload] = useState<UploadInfo>(null);
+  const [agentFiles, setAgentFiles] = useState<ManagedFile[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileManagerRefresh, setFileManagerRefresh] = useState(0);
   const [visibleChatCount, setVisibleChatCount] = useState(20);
   const chatsLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const chatsLoadingRef = useRef(false);
@@ -58,6 +60,17 @@ export default function AgentDetailPage() {
     },
     [userId],
   );
+
+  const loadAgentFiles = useCallback(async (agentId: string) => {
+    try {
+      const res = await fetch(`/api/agents/${agentId}/files`);
+      const data = await res.json();
+      const files: ManagedFile[] = Array.isArray(data.attachments) ? data.attachments : [];
+      setAgentFiles(files);
+    } catch (e) {
+      console.error('Failed to load agent files', e);
+    }
+  }, []);
 
   const loadAgents = useCallback(async () => {
     if (!userId) return;
@@ -78,9 +91,10 @@ export default function AgentDetailPage() {
       } else {
         setUpload(null);
       }
+      await loadAgentFiles(found.id);
       await loadTools(found.id);
     }
-  }, [loadTools, slug, userId]);
+  }, [loadTools, loadAgentFiles, slug, userId]);
 
   const loadConversations = useCallback(async () => {
     if (!userId) return;
@@ -93,25 +107,23 @@ export default function AgentDetailPage() {
     setTools((prev) => prev.map((t) => (t.toolName === 'get_current_datetime' ? { ...t, enabled: true } : t)));
   }, []);
 
+  const onSelectFile = (file: ManagedFile) => {
+    setAgentFiles((prev) => {
+      if (prev.some((f) => f.id === file.id)) return prev;
+      return [...prev, file];
+    });
+  };
+
+  const onDeselectFile = (fileId: string) => {
+    setAgentFiles((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
   useEffect(() => {
     if (userId) {
       void loadAgents();
       void loadConversations();
     }
   }, [userId, loadAgents, loadConversations]);
-
-  const onUploadFile = async (file: File) => {
-    const fd = new FormData();
-    fd.append('files', file);
-    const res = await fetch('/api/uploads', { method: 'POST', body: fd });
-    const data = await res.json();
-    const att = Array.isArray(data.attachments) ? data.attachments[0] : null;
-    if (att) {
-      const extracted = typeof att.text_content === 'string' ? att.text_content : '';
-      setForm((prev) => ({ ...prev, extraPrompt: extracted || prev.extraPrompt }));
-      setUpload({ id: att.id, name: att.filename });
-    }
-  };
 
   const onSave = async () => {
     if (!agent) return;
@@ -133,6 +145,15 @@ export default function AgentDetailPage() {
         setAgent(data.agent);
         // slug may change if name changed, so refresh list
         if (data.agent.slug !== slug) router.replace(`/agents/${data.agent.slug}`);
+      }
+      try {
+        await fetch(`/api/agents/${agent.id}/files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attachmentIds: agentFiles.map((f) => f.id) }),
+        });
+      } catch (e) {
+        console.error('Failed to save agent files', e);
       }
       alert('Agent saved');
       await loadAgents();
@@ -280,9 +301,9 @@ export default function AgentDetailPage() {
             setForm={setForm}
             upload={upload}
             setUpload={setUpload}
-            fileRef={fileRef}
-            onUploadFile={onUploadFile}
             onSystemToolRequired={ensureSystemToolEnabled}
+            fileManagerRefresh={fileManagerRefresh}
+            onFileManagerMutate={() => setFileManagerRefresh((v) => v + 1)}
           />
 
           <div className="pt-2">
@@ -313,6 +334,17 @@ export default function AgentDetailPage() {
               onToggleTool={(tool, enabled) => {
                 void toggleAgentTool(agent.id, tool.toolName, enabled);
               }}
+            />
+          </div>
+          <div className="space-y-2 pt-2">
+            <h3 className="text-sm font-semibold text-foreground">Default Files</h3>
+            <p className="text-xs text-muted">These files will be available to every chat with this agent by default.</p>
+            <FileManager
+              selectedIds={agentFiles.map((f) => f.id)}
+              onSelect={onSelectFile}
+              onDeselect={onDeselectFile}
+              refreshToken={fileManagerRefresh}
+              onMutate={() => setFileManagerRefresh((v) => v + 1)}
             />
           </div>
         </div>

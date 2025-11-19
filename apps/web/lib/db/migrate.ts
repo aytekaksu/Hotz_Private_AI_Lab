@@ -277,6 +277,45 @@ const migrations = [
     setVersion(8);
     console.log('✓ Migration 8 completed');
   },
+
+  // Migration 9: Attachment folders and library flag
+  function migration9() {
+    console.log('Running migration 9: Attachment folders and library flag');
+    try { db.exec("ALTER TABLE attachments ADD COLUMN folder_path TEXT NULL"); } catch {}
+    try { db.exec("ALTER TABLE attachments ADD COLUMN is_library INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { db.exec("UPDATE attachments SET folder_path = COALESCE(folder_path, '/'), is_library = COALESCE(is_library, 0)"); } catch {}
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS attachment_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        parent_path TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attachment_folders_parent ON attachment_folders(parent_path);');
+    setVersion(9);
+    console.log('✓ Migration 9 completed');
+  },
+
+  // Migration 10: Agent default files
+  function migration10() {
+    console.log('Running migration 10: Agent default files');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_default_files (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+        FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+      );
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_default_files_agent ON agent_default_files(agent_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_default_files_attachment ON agent_default_files(attachment_id)');
+    setVersion(10);
+    console.log('✓ Migration 10 completed');
+  },
 ];
 
 // Run migrations

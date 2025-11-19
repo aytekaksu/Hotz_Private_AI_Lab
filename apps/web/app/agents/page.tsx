@@ -6,7 +6,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AgentPromptFields } from './_components/agent-prompt-fields';
 import { AgentToolSelector } from './_components/agent-tool-selector';
-import type { Agent, AgentFormState, ToolItem, UploadInfo } from './types';
+import type { Agent, AgentFormState, ManagedFile, ToolItem, UploadInfo } from './types';
+import { FileManager } from '@/components/file-manager';
 import { usePersistentUserId } from '@/lib/hooks/usePersistentUserId';
 
 const ensureSearchToolPresent = (tools: ToolItem[]): ToolItem[] => {
@@ -40,8 +41,9 @@ export default function AgentsIndexPage() {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [upload, setUpload] = useState<UploadInfo>(null);
+  const [agentFiles, setAgentFiles] = useState<ManagedFile[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileManagerRefresh, setFileManagerRefresh] = useState(0);
   const [visibleAgentsCount, setVisibleAgentsCount] = useState(20);
   const agentsLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const agentsLoadingRef = useRef(false);
@@ -64,6 +66,17 @@ export default function AgentsIndexPage() {
     [userId],
   );
 
+  const loadAgentFiles = useCallback(async (agentId: string) => {
+    try {
+      const res = await fetch(`/api/agents/${agentId}/files`);
+      const data = await res.json();
+      const files: ManagedFile[] = Array.isArray(data.attachments) ? data.attachments : [];
+      setAgentFiles(files);
+    } catch (e) {
+      console.error('Failed to load agent files', e);
+    }
+  }, []);
+
   const loadBaseTools = useCallback(async () => {
     if (!userId) return;
     const res = await fetch(`/api/agents/tools?userId=${userId}`);
@@ -75,6 +88,32 @@ export default function AgentsIndexPage() {
   const ensureSystemToolEnabled = useCallback(() => {
     setTools((prev) => prev.map((t) => (t.toolName === 'get_current_datetime' ? { ...t, enabled: true } : t)));
   }, []);
+
+  const onSelectFile = (file: ManagedFile) => {
+    setAgentFiles((prev) => {
+      if (prev.some((f) => f.id === file.id)) return prev;
+      return [...prev, file];
+    });
+  };
+
+  const onDeselectFile = (fileId: string) => {
+    setAgentFiles((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
+  const saveAgentFiles = useCallback(
+    async (agentId: string) => {
+      try {
+        await fetch(`/api/agents/${agentId}/files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attachmentIds: agentFiles.map((f) => f.id) }),
+        });
+      } catch (e) {
+        console.error('Failed to save agent files', e);
+      }
+    },
+    [agentFiles],
+  );
 
   useEffect(() => {
     if (userId) {
@@ -110,20 +149,6 @@ export default function AgentsIndexPage() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [agents.length, visibleAgentsCount]);
-
-  const onUploadFile = async (file: File) => {
-    const fd = new FormData();
-    fd.append('files', file);
-    const res = await fetch('/api/uploads', { method: 'POST', body: fd });
-    const data = await res.json();
-    const att = Array.isArray(data.attachments) ? data.attachments[0] : null;
-    if (att) {
-      // Prefer extracted text_content when present
-      const extracted = typeof att.text_content === 'string' ? att.text_content : '';
-      setForm((prev) => ({ ...prev, extraPrompt: extracted || prev.extraPrompt }));
-      setUpload({ id: att.id, name: att.filename });
-    }
-  };
 
   const onSave = async () => {
     if (!userId) return;
@@ -175,6 +200,7 @@ export default function AgentsIndexPage() {
         } catch (e) {
           console.error('Failed to set initial default tools', e);
         }
+        await saveAgentFiles(patched.agent.id);
         await loadAgents();
         await loadAgentTools(patched.agent.id);
       }
@@ -270,9 +296,9 @@ export default function AgentsIndexPage() {
           setForm={setForm}
           upload={upload}
           setUpload={setUpload}
-          fileRef={fileRef}
-          onUploadFile={onUploadFile}
           onSystemToolRequired={ensureSystemToolEnabled}
+          fileManagerRefresh={fileManagerRefresh}
+          onFileManagerMutate={() => setFileManagerRefresh((v) => v + 1)}
         />
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-foreground">Default Apps/Tools</h3>
@@ -300,6 +326,18 @@ export default function AgentsIndexPage() {
                   void toggleAgentTool(editingAgent.id!, tool.toolName, enabled);
                 }
               }}
+            />
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <h3 className="text-sm font-semibold text-foreground">Default Files</h3>
+            <p className="text-xs text-muted">Files here will be available to every chat with this agent by default.</p>
+            <FileManager
+              selectedIds={agentFiles.map((f) => f.id)}
+              onSelect={onSelectFile}
+              onDeselect={onDeselectFile}
+              refreshToken={fileManagerRefresh}
+              onMutate={() => setFileManagerRefresh((v) => v + 1)}
             />
           </div>
 

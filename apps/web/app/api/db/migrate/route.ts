@@ -139,6 +139,77 @@ export async function POST(req: NextRequest) {
       setVersion(4);
     };
 
+    const migration5 = () => {
+      try { db.exec("ALTER TABLE users ADD COLUMN anthropic_api_key TEXT NULL"); } catch {}
+      try { db.exec("ALTER TABLE users ADD COLUMN active_ai_provider TEXT NULL"); } catch {}
+      try { db.exec("ALTER TABLE users ADD COLUMN default_model TEXT NULL"); } catch {}
+      try { db.exec("ALTER TABLE users ADD COLUMN default_routing_variant TEXT NULL"); } catch {}
+      setVersion(5);
+    };
+
+    const migration6 = () => {
+      try { db.exec("ALTER TABLE oauth_credentials ADD COLUMN account_email TEXT NULL"); } catch {}
+      setVersion(6);
+    };
+
+    const migration7 = () => {
+      try {
+        const columns = db.prepare('PRAGMA table_info(oauth_credentials);').all() as Array<{ name: string }>;
+        const hasColumn = columns.some((col) => col.name === 'account_email');
+        if (!hasColumn) {
+          db.exec('ALTER TABLE oauth_credentials ADD COLUMN account_email TEXT NULL');
+        }
+      } catch (error) {
+        console.error('Failed to add account_email column during migration 7:', error);
+      }
+      setVersion(7);
+    };
+
+    const migration8 = () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      setVersion(8);
+    };
+
+    const migration9 = () => {
+      try { db.exec("ALTER TABLE attachments ADD COLUMN folder_path TEXT NULL"); } catch {}
+      try { db.exec("ALTER TABLE attachments ADD COLUMN is_library INTEGER NOT NULL DEFAULT 0"); } catch {}
+      try { db.exec("UPDATE attachments SET folder_path = COALESCE(folder_path, '/'), is_library = COALESCE(is_library, 0)"); } catch {}
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS attachment_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          parent_path TEXT,
+          created_at TEXT NOT NULL
+        );
+      `);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_attachment_folders_parent ON attachment_folders(parent_path);');
+      setVersion(9);
+    };
+
+    const migration10 = () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_default_files (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL,
+          attachment_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+          FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE CASCADE
+        );
+      `);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_agent_default_files_agent ON agent_default_files(agent_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_agent_default_files_attachment ON agent_default_files(attachment_id)');
+      setVersion(10);
+    };
+
     try { db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;"); } catch {}
     const current = getCurrentVersion();
     const toRun = [] as Array<() => void>;
@@ -146,6 +217,12 @@ export async function POST(req: NextRequest) {
     if (current < 2) toRun.push(migration2);
     if (current < 3) toRun.push(migration3);
     if (current < 4) toRun.push(migration4);
+    if (current < 5) toRun.push(migration5);
+    if (current < 6) toRun.push(migration6);
+    if (current < 7) toRun.push(migration7);
+    if (current < 8) toRun.push(migration8);
+    if (current < 9) toRun.push(migration9);
+    if (current < 10) toRun.push(migration10);
 
     if (toRun.length === 0) {
       return Response.json({ success: true, message: 'Database is up to date', currentVersion: current });

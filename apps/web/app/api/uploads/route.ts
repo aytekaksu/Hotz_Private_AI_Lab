@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { createAttachment } from '@/lib/db';
+import { createAttachment, getAttachmentFolderByPath, normalizeFolderPath } from '@/lib/db';
 import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
@@ -79,9 +79,19 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const files = formData.getAll('files') as File[];
+    const folderInput = formData.get('folderPath');
+    const isLibraryInput = formData.get('isLibrary');
+    const folderPath = normalizeFolderPath(typeof folderInput === 'string' ? folderInput : '/');
+    const isLibrary =
+      typeof isLibraryInput === 'string'
+        ? isLibraryInput === 'true' || isLibraryInput === '1'
+        : true;
     
     if (!files || files.length === 0) {
       return Response.json({ error: 'No files provided' }, { status: 400 });
+    }
+    if (folderPath !== '/' && !getAttachmentFolderByPath(folderPath)) {
+      return Response.json({ error: 'Folder not found' }, { status: 400 });
     }
     
     // Validate file types
@@ -135,7 +145,9 @@ export async function POST(req: NextRequest) {
         file.type,
         bytes.byteLength,
         filepath,
-        normalizedText && normalizedText.length > 0 ? normalizedText : undefined
+        normalizedText && normalizedText.length > 0 ? normalizedText : undefined,
+        folderPath,
+        isLibrary
       );
       
       attachments.push(attachment);

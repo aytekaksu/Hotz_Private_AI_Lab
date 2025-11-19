@@ -1,3 +1,4 @@
+import fs from 'fs';
 import type { Database as BunDatabase } from 'bun:sqlite';
 import { encryptField, decryptField } from '../encryption';
 import { assertBunRuntime } from '../utils/runtime';
@@ -78,8 +79,23 @@ export interface Attachment {
   size: number;
   path: string;
   text_content?: string;
+  folder_path?: string | null;
+  is_library?: number | boolean;
   created_at: string;
 }
+
+export interface AttachmentFolder {
+  id: string;
+  name: string;
+  path: string;
+  parent_path?: string | null;
+  created_at: string;
+}
+
+const isSubpath = (target: string, parent: string) => {
+  if (parent === '/') return target.startsWith('/');
+  return target === parent || target.startsWith(parent.endsWith('/') ? parent : `${parent}/`);
+};
 
 export interface OAuthCredential {
   id: string;
@@ -313,28 +329,62 @@ export function getMessagesByConversationId(conversationId: string): Message[] {
 }
 
 // Attachment operations
+export const normalizeFolderPath = (path?: string | null): string => {
+  const raw = typeof path === 'string' ? path : '/';
+  let normalized = raw.trim() || '/';
+  normalized = normalized.replace(/\\/g, '/');
+  if (!normalized.startsWith('/')) normalized = `/${normalized}`;
+  normalized = normalized.replace(/\/+/g, '/');
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized || '/';
+};
+
+const sanitizeFolderName = (name: string): string => {
+  return (name || '').trim().replace(/[\\/]+/g, '-');
+};
+
 export function createAttachment(
   filename: string,
   mimetype: string,
   size: number,
   path: string,
-  textContent?: string
+  textContent?: string,
+  folderPath?: string,
+  isLibrary = true
 ): Attachment {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO attachments (id, filename, mimetype, size, path, text_content, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO attachments (id, filename, mimetype, size, path, text_content, folder_path, is_library, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
   
   const id = crypto.randomUUID();
-  stmt.run(id, filename, mimetype, size, path, textContent || null);
+  stmt.run(
+    id,
+    filename,
+    mimetype,
+    size,
+    path,
+    textContent || null,
+    normalizeFolderPath(folderPath),
+    isLibrary ? 1 : 0,
+  );
   
   return getAttachmentById(id)!;
 }
 
 export function getAttachmentById(id: string): Attachment | null {
   const db = getDb();
-  const stmt = db.prepare('SELECT * FROM attachments WHERE id = ?');
+  const stmt = db.prepare(`
+    SELECT 
+      *,
+      COALESCE(folder_path, '/') as folder_path,
+      COALESCE(is_library, 0) as is_library
+    FROM attachments
+    WHERE id = ?
+  `);
   const attachment = stmt.get(id) as Attachment | undefined;
   return attachment || null;
 }
@@ -343,20 +393,276 @@ export function getAttachmentsByIds(ids: string[]): Attachment[] {
   if (ids.length === 0) return [];
   const db = getDb();
   const placeholders = ids.map(() => '?').join(',');
-  const stmt = db.prepare(`SELECT * FROM attachments WHERE id IN (${placeholders})`);
+  const stmt = db.prepare(`
+    SELECT 
+      *,
+      COALESCE(folder_path, '/') as folder_path,
+      COALESCE(is_library, 0) as is_library
+    FROM attachments
+    WHERE id IN (${placeholders})
+  `);
   return stmt.all(...ids) as Attachment[];
 }
 
-export function setAttachmentMessage(attachmentId: string, messageId: string): void {
+export function setAttachmentMessage(attachmentId: string, messageId: string): Attachment | null {
   const db = getDb();
+  const attachment = getAttachmentById(attachmentId);
+  if (!attachment) return null;
+
+  if (attachment.is_library) {
+    const stmt = db.prepare(`
+      INSERT INTO attachments (id, message_id, filename, mimetype, size, path, text_content, folder_path, is_library, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+    `);
+    const cloneId = crypto.randomUUID();
+    stmt.run(
+      cloneId,
+      messageId,
+      attachment.filename,
+      attachment.mimetype,
+      attachment.size,
+      attachment.path,
+      attachment.text_content || null,
+      attachment.folder_path || '/',
+    );
+    return getAttachmentById(cloneId);
+  }
+
   const stmt = db.prepare('UPDATE attachments SET message_id = ? WHERE id = ?');
   stmt.run(messageId, attachmentId);
+  return getAttachmentById(attachmentId);
 }
 
 export function getAttachmentsByMessageId(messageId: string): Attachment[] {
   const db = getDb();
-  const stmt = db.prepare('SELECT * FROM attachments WHERE message_id = ?');
+  const stmt = db.prepare(`
+    SELECT 
+      *,
+      COALESCE(folder_path, '/') as folder_path,
+      COALESCE(is_library, 0) as is_library
+    FROM attachments 
+    WHERE message_id = ?
+  `);
   return stmt.all(messageId) as Attachment[];
+}
+
+export function promoteAttachmentToLibrary(id: string, folderPath: string = '/'): Attachment | null {
+  const db = getDb();
+  const normalized = normalizeFolderPath(folderPath);
+  db.prepare('UPDATE attachments SET is_library = 1, folder_path = ? WHERE id = ?').run(normalized, id);
+  return getAttachmentById(id);
+}
+
+export function renameLibraryAttachment(id: string, newName: string): Attachment | null {
+  const db = getDb();
+  const trimmed = (newName || '').trim();
+  if (!trimmed) return null;
+  db.prepare('UPDATE attachments SET filename = ? WHERE id = ? AND COALESCE(is_library, 0) = 1').run(trimmed, id);
+  return getAttachmentById(id);
+}
+
+export function getAttachmentFolders(parentPath: string = '/'): AttachmentFolder[] {
+  const db = getDb();
+  const normalized = normalizeFolderPath(parentPath);
+  const stmt = db.prepare('SELECT * FROM attachment_folders WHERE COALESCE(parent_path, \'/\') = ? ORDER BY name ASC');
+  return stmt.all(normalized) as AttachmentFolder[];
+}
+
+export function getAttachmentFolderByPath(path: string): AttachmentFolder | null {
+  const db = getDb();
+  const normalized = normalizeFolderPath(path);
+  const stmt = db.prepare('SELECT * FROM attachment_folders WHERE path = ?');
+  const folder = stmt.get(normalized) as AttachmentFolder | undefined;
+  return folder || null;
+}
+
+export function createAttachmentFolder(name: string, parentPath: string = '/'): AttachmentFolder {
+  const db = getDb();
+  const sanitized = sanitizeFolderName(name);
+  if (!sanitized) {
+    throw new Error('Folder name is required');
+  }
+  const parent = normalizeFolderPath(parentPath);
+  if (parent !== '/' && !getAttachmentFolderByPath(parent)) {
+    throw new Error('Parent folder not found');
+  }
+  const basePath = normalizeFolderPath(parent === '/' ? `/${sanitized}` : `${parent}/${sanitized}`);
+
+  let candidatePath = basePath;
+  let suffix = 1;
+  while (getAttachmentFolderByPath(candidatePath)) {
+    candidatePath = normalizeFolderPath(`${basePath}-${suffix}`);
+    suffix += 1;
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO attachment_folders (id, name, path, parent_path, created_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `);
+  const id = crypto.randomUUID();
+  stmt.run(id, sanitized, candidatePath, parent);
+  return getAttachmentFolderByPath(candidatePath)!;
+}
+
+export function deleteAttachmentFolder(path: string): void {
+  const db = getDb();
+  const normalized = normalizeFolderPath(path);
+  if (normalized === '/') {
+    throw new Error('Cannot delete root folder');
+  }
+  const folders = db
+    .prepare('SELECT path FROM attachment_folders WHERE path = ? OR path LIKE ?')
+    .all(normalized, `${normalized}/%`) as Array<{ path: string }>;
+  const folderPaths = folders.map((f) => f.path);
+
+  const attachments = db
+    .prepare(
+      `SELECT id, path FROM attachments WHERE COALESCE(is_library,0)=1 AND (COALESCE(folder_path,'/') = ? OR COALESCE(folder_path,'/') LIKE ?)`,
+    )
+    .all(normalized, `${normalized}/%`) as Array<{ id: string; path: string }>;
+
+  const attachmentIds = attachments.map((a) => a.id);
+  if (attachmentIds.length > 0) {
+    db.prepare(`DELETE FROM attachments WHERE id IN (${attachmentIds.map(() => '?').join(',')})`).run(...attachmentIds);
+    try {
+      db.prepare(`DELETE FROM agent_default_files WHERE attachment_id IN (${attachmentIds.map(() => '?').join(',')})`).run(
+        ...attachmentIds,
+      );
+    } catch {}
+  }
+
+  if (folderPaths.length > 0) {
+    db.prepare(`DELETE FROM attachment_folders WHERE path IN (${folderPaths.map(() => '?').join(',')})`).run(
+      ...folderPaths,
+    );
+  }
+}
+
+export function getAttachmentsInFolder(folderPath: string = '/', libraryOnly = true): Attachment[] {
+  const db = getDb();
+  const normalized = normalizeFolderPath(folderPath);
+  const stmt = db.prepare(
+    `
+      SELECT 
+        *,
+        COALESCE(folder_path, '/') as folder_path,
+        COALESCE(is_library, 0) as is_library
+      FROM attachments 
+      WHERE COALESCE(folder_path, '/') = ?
+      ${libraryOnly ? 'AND COALESCE(is_library, 0) = 1' : ''}
+      ORDER BY created_at DESC
+    `,
+  );
+  return stmt.all(normalized) as Attachment[];
+}
+
+export function deleteAttachment(id: string): boolean {
+  const db = getDb();
+  const attachment = getAttachmentById(id);
+  if (!attachment) return false;
+
+  try {
+    db.prepare('DELETE FROM agent_default_files WHERE attachment_id = ?').run(id);
+  } catch {}
+
+  db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+
+  try {
+    const count = db.prepare('SELECT COUNT(*) as count FROM attachments WHERE path = ?').get(attachment.path) as { count: number } | undefined;
+    const remaining = count?.count ?? 0;
+    if (remaining === 0) {
+      try {
+        fs.rmSync(attachment.path, { force: true });
+      } catch (err) {
+        console.error('Failed to remove attachment file from disk:', err);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to clean up attachment file:', error);
+  }
+
+  return true;
+}
+
+export function renameAttachmentFolder(path: string, newName: string): AttachmentFolder | null {
+  const db = getDb();
+  const normalized = normalizeFolderPath(path);
+  if (normalized === '/') {
+    throw new Error('Cannot rename root folder');
+  }
+  const folder = getAttachmentFolderByPath(normalized);
+  if (!folder) return null;
+  const parent = normalizeFolderPath(folder.parent_path || '/');
+  const sanitized = sanitizeFolderName(newName);
+  if (!sanitized) {
+    throw new Error('Folder name is required');
+  }
+  const basePath = normalizeFolderPath(parent === '/' ? `/${sanitized}` : `${parent}/${sanitized}`);
+
+  let candidatePath = basePath;
+  let suffix = 1;
+  while (getAttachmentFolderByPath(candidatePath)) {
+    candidatePath = normalizeFolderPath(`${basePath}-${suffix}`);
+    suffix += 1;
+  }
+
+  const oldPrefix = normalized.endsWith('/') ? normalized : `${normalized}`;
+  const newPrefix = candidatePath;
+
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE attachment_folders SET name = ?, path = ? WHERE path = ?').run(
+      sanitized,
+      candidatePath,
+      normalized,
+    );
+    db.prepare('UPDATE attachment_folders SET path = REPLACE(path, ?, ?) WHERE path LIKE ?').run(
+      `${oldPrefix}/`,
+      `${newPrefix}/`,
+      `${oldPrefix}/%`,
+    );
+    db.prepare(
+      'UPDATE attachments SET folder_path = REPLACE(COALESCE(folder_path,"/"), ?, ?) WHERE COALESCE(folder_path,"/") LIKE ? AND COALESCE(is_library,0)=1',
+    ).run(`${oldPrefix}`, `${newPrefix}`, `${oldPrefix}%`);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+
+  return getAttachmentFolderByPath(candidatePath);
+}
+
+export function getAgentDefaultAttachments(agentId: string): Attachment[] {
+  const db = getDb();
+  const stmt = db.prepare(
+    `
+    SELECT a.*, COALESCE(a.folder_path,'/') as folder_path, COALESCE(a.is_library,0) as is_library
+    FROM attachments a
+    INNER JOIN agent_default_files f ON f.attachment_id = a.id
+    WHERE f.agent_id = ?
+    ORDER BY f.created_at DESC
+  `,
+  );
+  return stmt.all(agentId) as Attachment[];
+}
+
+export function setAgentDefaultAttachments(agentId: string, attachmentIds: string[]): void {
+  const db = getDb();
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM agent_default_files WHERE agent_id = ?').run(agentId);
+    const stmt = db.prepare(
+      'INSERT INTO agent_default_files (id, agent_id, attachment_id, created_at) VALUES (?, ?, ?, datetime("now"))',
+    );
+    for (const id of attachmentIds) {
+      stmt.run(crypto.randomUUID(), agentId, id);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 }
 
 // OAuth Credential operations
@@ -718,6 +1024,13 @@ export interface Agent {
   instructions_attachment_name?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentFile {
+  id: string;
+  agent_id: string;
+  attachment_id: string;
+  created_at: string;
 }
 
 export function slugifyName(name: string): string {

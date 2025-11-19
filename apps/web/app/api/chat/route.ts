@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById } from '@/lib/db';
+import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById, promoteAttachmentToLibrary, getAgentDefaultAttachments } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -185,8 +185,50 @@ export async function POST(req: Request) {
       return new Response('Messages required', { status: 400 });
     }
     
-    const attachmentsFromDb =
-      Array.isArray(attachments) && attachments.length > 0 ? getAttachmentsByIds(attachments) : [];
+    const normalizedAttachments: Array<{ id: string; addToLibrary?: boolean }> = Array.isArray(attachments)
+      ? attachments
+          .map((att: any) => {
+            if (typeof att === 'string') return { id: att, addToLibrary: false };
+            if (att && typeof att.id === 'string') {
+              return { id: att.id, addToLibrary: !!att.addToLibrary };
+            }
+            return null;
+          })
+          .filter(Boolean) as Array<{ id: string; addToLibrary?: boolean }>
+      : [];
+    const attachmentIds = normalizedAttachments.map((a) => a.id);
+    const addToLibraryMap = new Map(normalizedAttachments.map((a) => [a.id, !!a.addToLibrary]));
+
+    let attachmentsFromDb =
+      Array.isArray(attachmentIds) && attachmentIds.length > 0 ? getAttachmentsByIds(attachmentIds) : [];
+
+    if (resolvedAgentId) {
+      try {
+        const defaults = getAgentDefaultAttachments(resolvedAgentId);
+        if (defaults?.length) {
+          const existingIds = new Set(attachmentIds);
+          for (const att of defaults) {
+            if (!existingIds.has(att.id)) {
+              attachmentsFromDb.push(att);
+              existingIds.add(att.id);
+            }
+            addToLibraryMap.set(att.id, false);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load agent default attachments', e);
+      }
+    }
+
+    // Promote any pending uploads flagged for library inclusion before linking to the message
+    attachmentsFromDb = attachmentsFromDb.map((att) => {
+      const shouldPromote = addToLibraryMap.get(att.id);
+      if (shouldPromote && !att.is_library) {
+        const promoted = promoteAttachmentToLibrary(att.id, att.folder_path || '/');
+        if (promoted) return promoted;
+      }
+      return att;
+    });
 
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
@@ -235,9 +277,9 @@ export async function POST(req: Request) {
       normalizedMessages[normalizedMessages.length - 1].parts = messageParts;
       
       const saved = createMessage(currentConversationId, 'user', content);
-      if (Array.isArray(attachments) && attachments.length > 0) {
+      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
         try {
-          for (const attId of attachments) {
+          for (const attId of attachmentIds) {
             setAttachmentMessage(attId, saved.id);
           }
         } catch (e) {

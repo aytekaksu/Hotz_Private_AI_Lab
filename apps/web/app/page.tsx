@@ -9,13 +9,14 @@ import {
   useMemo,
   useCallback,
   type ChangeEvent,
-  type FormEvent,
+type FormEvent,
 } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { usePathname, useRouter } from 'next/navigation';
 // Theme toggle removed — app is permanently dark
 import type { ToolDefinition } from '@/components/tool-dialog';
+import { FileManager, type ManagedFile } from '@/components/file-manager';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -86,10 +87,12 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [attachments, setAttachments] = useState<any[]>([]);
+  type ChatAttachment = ManagedFile & { addToLibrary?: boolean };
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [availableTools, setAvailableTools] = useState<ToolDefinition[]>([]);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [isFileManagerOpen, setIsFileManagerOpen] = useState(false);
   const [agents, setAgents] = useState<any[]>([]);
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<any | null>(null);
@@ -116,11 +119,13 @@ export default function Home() {
   const currentConversationIdRef = useRef<string | null>(null);
   const currentAgentSlugRef = useRef<string | null>(null);
   const rootForwardedRef = useRef<boolean>(false);
-  const pendingAttachmentsRef = useRef<any[]>([]);
+  const pendingAttachmentsRef = useRef<ChatAttachment[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const toolsPopoverRef = useRef<HTMLDivElement>(null);
   const toolsButtonRef = useRef<HTMLButtonElement>(null);
+  const fileManagerPopoverRef = useRef<HTMLDivElement>(null);
+  const fileManagerButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarListRef = useRef<HTMLDivElement>(null);
 
   const pathname = usePathname();
@@ -520,7 +525,10 @@ export default function Home() {
           body: {
             conversationId: currentConversationIdRef.current,
             userId,
-            attachments: currentAttachments.map((att) => att.id),
+            attachments: currentAttachments.map((att) => ({
+              id: att.id,
+              addToLibrary: att.is_library ? false : att.addToLibrary !== false,
+            })),
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             agentId: !currentConversationIdRef.current && selectedAgentForNextChat ? selectedAgentForNextChat.id : undefined,
           },
@@ -562,6 +570,23 @@ export default function Home() {
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [isToolsOpen]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!isFileManagerOpen) return;
+      if (
+        fileManagerPopoverRef.current &&
+        fileManagerButtonRef.current &&
+        !fileManagerPopoverRef.current.contains(target) &&
+        !fileManagerButtonRef.current.contains(target)
+      ) {
+        setIsFileManagerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [isFileManagerOpen]);
 
   const mapDbMessageToUiMessage = (message: any) => ({
     id: message.id,
@@ -823,6 +848,8 @@ export default function Home() {
     Array.from(files).forEach((file) => {
       formData.append('files', file);
     });
+    formData.append('isLibrary', 'false');
+    formData.append('folderPath', '/');
 
     try {
       const response = await fetch('/api/uploads', {
@@ -834,7 +861,9 @@ export default function Home() {
       if (data.error) {
         alert(data.error);
       } else {
-        setAttachments((prev) => [...prev, ...data.attachments]);
+        const uploaded = Array.isArray(data.attachments) ? (data.attachments as ManagedFile[]) : [];
+        const normalized = uploaded.map((att) => ({ ...att, addToLibrary: true })) as ChatAttachment[];
+        setAttachments((prev) => [...prev, ...normalized]);
       }
     } catch (error) {
       console.error('Failed to upload files:', error);
@@ -848,8 +877,29 @@ export default function Home() {
     }
   };
 
+  const addAttachmentFromLibrary = (attachment: ManagedFile) => {
+    setAttachments((prev) => {
+      if (prev.some((a) => a.id === attachment.id)) return prev;
+      return [...prev, { ...(attachment as ChatAttachment), addToLibrary: false }];
+    });
+  };
+
+  const deleteAttachmentFromServer = async (attachmentId: string) => {
+    try {
+      await fetch(`/api/files/${attachmentId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Failed to remove uploaded file', err);
+    }
+  };
+
   const removeAttachment = (attachmentId: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+    setAttachments((prev) => {
+      const target = prev.find((a) => a.id === attachmentId);
+      if (target && !target.is_library) {
+        void deleteAttachmentFromServer(attachmentId);
+      }
+      return prev.filter((a) => a.id !== attachmentId);
+    });
   };
 
   useEffect(() => {
@@ -1220,6 +1270,27 @@ export default function Home() {
     );
   }
 
+  const stripAttachmentAppendix = (message: any, text: string) => {
+    if (typeof text !== 'string' || text.length === 0) return '';
+
+    const attachmentsForMessage = Array.isArray(message?.metadata?.attachments)
+      ? message.metadata.attachments
+      : Array.isArray((message as any)?.attachments)
+        ? (message as any).attachments
+        : [];
+
+    const markerIndex = text.indexOf('[Attachments]');
+    if (markerIndex === -1) return text;
+
+    // Remove everything from the marker onward; keep leading prompt intact
+    const trimmed = text.slice(0, markerIndex).trimEnd();
+
+    // If we had attachments or the marker existed, prefer hiding the appendix even if empty
+    if (attachmentsForMessage.length > 0) return trimmed;
+    // No attachment metadata? still hide the appendix if we found the marker
+    return trimmed;
+  };
+
   const renderMessageText = (message: any) => {
     // Prefer parts if present (streaming often provides parts)
     const pullTextFromArray = (arr: any[]) =>
@@ -1239,14 +1310,14 @@ export default function Home() {
 
     if (Array.isArray(message.parts)) {
       const combined = pullTextFromArray(message.parts);
-      if (combined.length > 0) return combined;
+      if (combined.length > 0) return stripAttachmentAppendix(message, combined);
     }
-    if (typeof message.content === 'string') return message.content;
+    if (typeof message.content === 'string') return stripAttachmentAppendix(message, message.content);
     if (Array.isArray(message.content)) {
       const combined = pullTextFromArray(message.content);
-      if (combined.length > 0) return combined;
+      if (combined.length > 0) return stripAttachmentAppendix(message, combined);
     }
-    if (typeof message.text === 'string') return message.text;
+    if (typeof message.text === 'string') return stripAttachmentAppendix(message, message.text);
     return '';
   };
 
@@ -1369,7 +1440,7 @@ export default function Home() {
   
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-[100dvh] overflow-hidden bg-background text-foreground">
       <a
         href="/settings"
         className="fixed right-4 top-4 z-50 hidden md:inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-4 py-2 text-sm text-foreground shadow transition hover:border-accent hover:text-accent"
@@ -1433,12 +1504,12 @@ export default function Home() {
       )}
 
       <div className="flex h-full flex-1 min-w-0 flex-col md:overflow-hidden">
-        <header className="sticky top-0 left-0 z-30 flex items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-4 py-4 text-sm shadow-sm backdrop-blur md:hidden">
+        <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/80 px-4 py-2 text-sm backdrop-blur-md md:hidden">
           <div className="flex flex-1 items-center gap-3 overflow-hidden">
             <button
               type="button"
               onClick={() => setSidebarOpen((open) => !open)}
-              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-border bg-card/80 text-foreground/80 transition hover:text-foreground"
+              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-foreground backdrop-blur-sm"
               aria-label="Toggle navigation menu"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
@@ -1446,8 +1517,7 @@ export default function Home() {
               </svg>
             </button>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] uppercase tracking-[0.45em] text-muted">Workspace</p>
-              <p className="truncate text-base font-semibold text-foreground" title={activeConversationTitle}>
+              <p className="truncate text-sm font-semibold text-foreground drop-shadow-md" title={activeConversationTitle}>
                 {activeConversationTitle}
               </p>
             </div>
@@ -1456,17 +1526,17 @@ export default function Home() {
             <button
               type="button"
               onClick={startNewChat}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/80 px-3 py-1.5 text-xs font-semibold text-foreground/80 transition hover:border-accent hover:text-accent"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-accent backdrop-blur-sm"
+              aria-label="New chat"
             >
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
                 <path d="M10 4.167v11.666M4.167 10h11.666" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              New
             </button>
             <button
               type="button"
               onClick={() => router.push('/settings')}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/80 text-foreground/80 transition hover:text-foreground"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-foreground backdrop-blur-sm"
               aria-label="Open settings"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
@@ -1479,7 +1549,7 @@ export default function Home() {
 
         <main
           ref={messagesViewportRef}
-          className="flex-1 overflow-y-auto px-4 py-4 sm:py-6 md:px-10"
+          className="flex-1 overflow-y-auto px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6"
           style={{ paddingBottom: isMobile ? '12rem' : undefined }}
         >
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -1502,7 +1572,9 @@ export default function Home() {
                   const text = renderMessageText(message);
                   const attachmentsForMessage = Array.isArray(message.metadata?.attachments)
                     ? message.metadata.attachments
-                    : [];
+                    : Array.isArray((message as any).attachments)
+                      ? (message as any).attachments
+                      : [];
 
                   return (
                     <div key={message.id ?? idx} className={`flex w-full ${isUser ? 'justify-end' : 'justify-center'}`}>
@@ -1583,21 +1655,45 @@ export default function Home() {
             <form ref={formRef} onSubmit={handleFormSubmit} className="space-y-3">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {attachments.map((attachment) => (
-                    <span
-                      key={attachment.id}
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-foreground"
-                    >
-                      {attachment.filename}
-                      <button
-                        type="button"
-                        onClick={() => removeAttachment(attachment.id)}
-                        className="text-muted transition hover:text-foreground"
+                  {attachments.map((attachment) => {
+                    const showLibraryToggle = !attachment.is_library;
+                    return (
+                      <span
+                        key={attachment.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-foreground"
                       >
-                        ×
-                      </button>
-                    </span>
-                  ))}
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-muted">
+                          <path d="M4.167 5.833h6.666L12.5 7.5h3.333v6.667H4.167V5.833Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span className="truncate max-w-[10rem] sm:max-w-[14rem]">{attachment.filename}</span>
+                        {showLibraryToggle && (
+                          <label className="inline-flex items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted transition hover:text-foreground">
+                            <input
+                              type="checkbox"
+                              className="h-3 w-3"
+                              checked={attachment.addToLibrary !== false}
+                              onChange={(e) =>
+                                setAttachments((prev) =>
+                                  prev.map((att) =>
+                                    att.id === attachment.id ? { ...att, addToLibrary: e.target.checked } : att,
+                                  ),
+                                )
+                              }
+                            />
+                            <span>Save to library</span>
+                          </label>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(attachment.id)}
+                          className="text-muted transition hover:text-foreground"
+                          aria-label={`Remove ${attachment.filename}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               <div className="rounded-3xl border border-border bg-card/80 shadow-sm">
@@ -1612,7 +1708,7 @@ export default function Home() {
                   spellCheck={false}
                 />
               </div>
-              <div className="relative flex flex-wrap items-center gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex flex-wrap items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted transition hover:text-foreground">
                     <input
@@ -1627,97 +1723,124 @@ export default function Home() {
                     </svg>
                     Attach
                   </label>
-                  <button
-                    ref={toolsButtonRef}
-                    type="button"
-                    onClick={async () => { await ensureConversation(); setIsToolsOpen((v) => !v); }}
-                    className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted transition hover:text-foreground"
-                  >
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
-                      <path d="M10 4.167v11.666M4.167 10h11.666" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Apps
-                  </button>
-                  {isToolsOpen && (
-                    <div
-                      ref={toolsPopoverRef}
-                      className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-border bg-background p-3 shadow-xl sm:w-80"
+                  <div className="relative">
+                    <button
+                      ref={toolsButtonRef}
+                      type="button"
+                      onClick={async () => { await ensureConversation(); setIsFileManagerOpen(false); setIsToolsOpen((v) => !v); }}
+                      className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted transition hover:text-foreground"
                     >
-                      <p className="px-1 pb-2 text-xs text-muted">Conversation apps</p>
-                      <div className="space-y-2">
-                        {Object.entries(
-                          availableTools.reduce((acc: Record<string, ToolDefinition[]>, t) => {
-                            (acc[t.category] ||= []).push(t);
-                            return acc;
-                          }, {}),
-                        ).map(([category, items]) => (
-                          <details key={category} className="group rounded-xl border border-border bg-surface/60 transition-all">
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2">
-                              <span className="text-sm font-semibold text-foreground">{category}</span>
-                              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                                {/* slider toggle for entire category */}
-                                {(() => {
-                                  const togglable = items.filter((t) => t.available);
-                                  const allEnabled = togglable.length > 0 && togglable.every((t) => t.enabled);
-                                  return (
-                                    <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
-                                      <input
-                                        type="checkbox"
-                                        className="peer sr-only"
-                                        checked={allEnabled}
-                                        onChange={async (e) => {
-                                          const checked = e.target.checked;
-                                          for (const t of togglable) {
-                                            try { await toggleTool(t.toolName, checked); } catch {}
-                                          }
-                                        }}
-                                      />
-                                      <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
-                                      <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                        <path d="M10 4.167v11.666M4.167 10h11.666" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Apps
+                    </button>
+                    {isToolsOpen && (
+                      <div
+                        ref={toolsPopoverRef}
+                        className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-border bg-background p-3 shadow-xl sm:w-80"
+                      >
+                        <p className="px-1 pb-2 text-xs text-muted">Conversation apps</p>
+                        <div className="space-y-2">
+                          {Object.entries(
+                            availableTools.reduce((acc: Record<string, ToolDefinition[]>, t) => {
+                              (acc[t.category] ||= []).push(t);
+                              return acc;
+                            }, {}),
+                          ).map(([category, items]) => (
+                            <details key={category} className="group rounded-xl border border-border bg-surface/60 transition-all">
+                              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2">
+                                <span className="text-sm font-semibold text-foreground">{category}</span>
+                                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                  {/* slider toggle for entire category */}
+                                  {(() => {
+                                    const togglable = items.filter((t) => t.available);
+                                    const allEnabled = togglable.length > 0 && togglable.every((t) => t.enabled);
+                                    return (
+                                      <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
+                                        <input
+                                          type="checkbox"
+                                          className="peer sr-only"
+                                          checked={allEnabled}
+                                          onChange={async (e) => {
+                                            const checked = e.target.checked;
+                                            for (const t of togglable) {
+                                              try { await toggleTool(t.toolName, checked); } catch {}
+                                            }
+                                          }}
+                                        />
+                                        <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
+                                        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
+                                      </label>
+                                    );
+                                  })()}
+                                  <svg viewBox="0 0 20 20" className="h-4 w-4 text-muted transition-transform group-open:-rotate-90" fill="none" stroke="currentColor">
+                                    <path d="M13 5l-6 5 6 5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                </div>
+                              </summary>
+                              <div className="grid grid-rows-[0fr] transition-all duration-300 group-open:grid-rows-[1fr] border-t border-border">
+                                <div className="overflow-hidden space-y-2 px-3 py-2">
+                                  {items.map((tool) => (
+                                    <label
+                                      key={tool.toolName}
+                                      className={`flex items-start justify-between gap-3 rounded-lg border border-transparent px-2 py-1.5 text-sm ${
+                                        tool.available ? '' : 'opacity-60'
+                                      }`}
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate font-medium">{tool.displayName}</p>
+                                        <p className="mt-0.5 text-xs text-muted">{tool.description}</p>
+                                        {!tool.available && (
+                                          <p className="mt-1 text-xs text-muted">Connect {tool.authProvider} to enable.</p>
+                                        )}
+                                      </div>
+                                      <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
+                                        <input
+                                          type="checkbox"
+                                          className="peer sr-only"
+                                          checked={tool.available && tool.enabled}
+                                          disabled={!tool.available}
+                                          onChange={(event) => toggleTool(tool.toolName, event.target.checked)}
+                                        />
+                                        <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
+                                        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
+                                      </label>
                                     </label>
-                                  );
-                                })()}
-                                <svg viewBox="0 0 20 20" className="h-4 w-4 text-muted transition-transform group-open:-rotate-90" fill="none" stroke="currentColor">
-                                  <path d="M13 5l-6 5 6 5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
+                                  ))}
+                                </div>
                               </div>
-                            </summary>
-                            <div className="grid grid-rows-[0fr] transition-all duration-300 group-open:grid-rows-[1fr] border-t border-border">
-                              <div className="overflow-hidden space-y-2 px-3 py-2">
-                                {items.map((tool) => (
-                                  <label
-                                    key={tool.toolName}
-                                    className={`flex items-start justify-between gap-3 rounded-lg border border-transparent px-2 py-1.5 text-sm ${
-                                      tool.available ? '' : 'opacity-60'
-                                    }`}
-                                  >
-                                    <div className="min-w-0 flex-1">
-                                      <p className="truncate font-medium">{tool.displayName}</p>
-                                      <p className="mt-0.5 text-xs text-muted">{tool.description}</p>
-                                      {!tool.available && (
-                                        <p className="mt-1 text-xs text-muted">Connect {tool.authProvider} to enable.</p>
-                                      )}
-                                    </div>
-                                    <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
-                                      <input
-                                        type="checkbox"
-                                        className="peer sr-only"
-                                        checked={tool.available && tool.enabled}
-                                        disabled={!tool.available}
-                                        onChange={(event) => toggleTool(tool.toolName, event.target.checked)}
-                                      />
-                                      <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
-                                      <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
-                                    </label>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          </details>
-                        ))}
+                            </details>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                  <div className="relative">
+                    <button
+                      ref={fileManagerButtonRef}
+                      type="button"
+                      onClick={() => { setIsToolsOpen(false); setIsFileManagerOpen((v) => !v); }}
+                      className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted transition hover:text-foreground"
+                    >
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+                        <path d="M3.333 14.167V5.833h4.333L9.167 7.5h7.5v6.667h-13.334Z" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Files
+                    </button>
+                    {isFileManagerOpen && (
+                      <div
+                        ref={fileManagerPopoverRef}
+                        className="absolute bottom-full left-0 z-20 mb-2 w-[min(26rem,calc(100vw-2.5rem))] sm:w-[26rem]"
+                      >
+                        <FileManager
+                          selectedIds={attachments.map((att) => att.id)}
+                          onSelect={addAttachmentFromLibrary}
+                          onDeselect={removeAttachment}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="ml-auto flex items-center gap-2 sm:ml-0 sm:gap-3">
                   {isUploading && <span className="text-xs text-muted">Uploading…</span>}

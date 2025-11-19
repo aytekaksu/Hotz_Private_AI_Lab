@@ -27,3 +27,15 @@ export type AgentFormState = {
 };
 
 export type UploadInfo = { id: string; name: string } | null;
+
+export type ManagedFile = {
+  id: string;
+  filename: string;
+  mimetype: string;
+  size: number;
+  created_at: string;
+  folder_path?: string | null;
+  message_id?: string | null;
+  is_library?: number | boolean;
+  text_content?: string | null;
+};
