@@ -36,7 +36,6 @@ function extractPlainTextTitle(from: any): string | null {
 
 const PREVIEW_LINE_COUNT = 256;
 const DEFAULT_RANGE_SIZE = 256;
-const MAX_PREVIEW_CHARS = 12000; // guardrail to avoid overfeeding tokens from previews
 
 const richTextToPlainString = (parts: any[]): string =>
   parts
@@ -147,30 +146,6 @@ async function flattenBlocks(notion: Client, blocks: any[], depth = 0): Promise<
 
 export type NotionToolContext = {
   notionCache?: NotionPageCache;
-};
-
-const clampLinesByChars = (lines: string[], maxChars: number) => {
-  const out: string[] = [];
-  let used = 0;
-  let truncated = false;
-  for (const line of lines) {
-    const remaining = maxChars - used;
-    if (remaining <= 0) {
-      truncated = true;
-      break;
-    }
-    if (line.length <= remaining) {
-      out.push(line);
-      used += line.length;
-      continue;
-    }
-    const sliceLen = Math.max(0, remaining - 3);
-    out.push(`${line.slice(0, sliceLen)}...`);
-    used = maxChars;
-    truncated = true;
-    break;
-  }
-  return { lines: out, charCount: used, truncated };
 };
 
 export async function searchNotion(
@@ -431,9 +406,8 @@ export async function getNotionPage(
       cacheKey: params.cache_key || null,
       startLine: params.start_line ?? null,
       endLine: params.end_line ?? null,
-      previewLines: PREVIEW_LINE_COUNT,
-      previewCharLimit: MAX_PREVIEW_CHARS,
     });
+
     const cache = context?.notionCache ?? new NotionPageCache();
     const normalizeNumber = (value: number | undefined) =>
       Number.isFinite(value as number) ? Math.max(1, Math.floor(value as number)) : undefined;
@@ -470,19 +444,15 @@ export async function getNotionPage(
 
     const totalLines = cachedPage.lineCount;
     const headEnd = Math.max(0, Math.min(PREVIEW_LINE_COUNT, totalLines));
-    const headLinesRaw = cachedPage.lines.slice(0, PREVIEW_LINE_COUNT);
-    const headLines = clampLinesByChars(headLinesRaw, MAX_PREVIEW_CHARS);
+    const headLines = cachedPage.lines.slice(0, PREVIEW_LINE_COUNT);
     const tailStart = Math.max(1, totalLines - PREVIEW_LINE_COUNT + 1);
-    const tailLinesRaw = cachedPage.lines.slice(-PREVIEW_LINE_COUNT);
-    const tailLines = clampLinesByChars(tailLinesRaw, MAX_PREVIEW_CHARS);
+    const tailLines = cachedPage.lines.slice(-PREVIEW_LINE_COUNT);
 
     let range:
       | {
           start: number;
           end: number;
           lines: string[];
-          char_count: number;
-          truncated: boolean;
         }
       | undefined;
 
@@ -495,13 +465,10 @@ export async function getNotionPage(
 
       const slice = await cache.slice(cachedPage.cacheKey, desiredStart, desiredEnd);
       if (slice) {
-        const cappedRange = clampLinesByChars(slice.lines, MAX_PREVIEW_CHARS);
         range = {
           start: slice.start,
           end: slice.end,
-          lines: cappedRange.lines,
-          char_count: cappedRange.charCount,
-          truncated: cappedRange.truncated,
+          lines: slice.lines,
         };
       }
     }
@@ -513,16 +480,12 @@ export async function getNotionPage(
       head: {
         start: totalLines === 0 ? 0 : 1,
         end: headEnd,
-        lines: headLines.lines,
-        char_count: headLines.charCount,
-        truncated: headLines.truncated,
+        lines: headLines,
       },
       tail: {
         start: totalLines === 0 ? 0 : tailStart,
         end: totalLines,
-        lines: tailLines.lines,
-        char_count: tailLines.charCount,
-        truncated: tailLines.truncated,
+        lines: tailLines,
       },
       range,
       page: {
