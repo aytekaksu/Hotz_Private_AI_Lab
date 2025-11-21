@@ -3,11 +3,17 @@ import * as googleCalendar from './google-calendar';
 import * as googleTasks from './google-tasks';
 import * as notion from './notion';
 import * as system from './system';
+import { NotionPageCache } from './notion-cache';
+
+export type ToolRuntimeContext = {
+  notionCache?: NotionPageCache;
+};
 
 export async function executeTool(
   toolName: ToolName,
   args: any,
-  userId: string
+  userId: string,
+  context?: ToolRuntimeContext,
 ): Promise<any> {
   console.log(`Executing tool: ${toolName}`, { args, userId });
   
@@ -56,7 +62,7 @@ export async function executeTool(
         return await notion.appendNotionBlocks(userId, args);
       
       case 'get_notion_page':
-        return await notion.getNotionPage(userId, args);
+        return await notion.getNotionPage(userId, args, context);
       
       // System Tools
       case 'get_current_datetime':
@@ -76,6 +82,5 @@ export async function executeTool(
     };
   }
 }
-
 
 

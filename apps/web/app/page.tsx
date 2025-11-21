@@ -437,7 +437,22 @@ export default function Home() {
     transport,
     onToolCall: ({ toolCall }) => {
       // Create a tool chip immediately and attach to the latest assistant message
-      const toolId = `${(toolCall as any).toolName || (toolCall as any).name || 'tool'}-${Date.now()}`;
+      const normalizedName = (toolCall as any).toolName || (toolCall as any).name || 'tool';
+      const toolId = `${normalizedName}-${Date.now()}`;
+
+      if (normalizedName === 'get_notion_page') {
+        const pendingExists = pendingToolInvocationsRef.current.some((inv) => inv.toolName === normalizedName);
+        if (pendingExists) return;
+        const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') as any;
+        if (lastAssistant && Array.isArray(lastAssistant.toolInvocations)) {
+          const alreadyPresent = lastAssistant.toolInvocations.some(
+            (inv: any) =>
+              (inv.toolName === normalizedName || inv.name === normalizedName) &&
+              inv.state !== 'output-available',
+          );
+          if (alreadyPresent) return;
+        }
+      }
       const attachToLastAssistant = () => {
         setMessages((prev) => {
           const idx = prev.map((m) => m.role).lastIndexOf('assistant');
@@ -450,7 +465,7 @@ export default function Home() {
             toolInvocations: [
               ...inv,
               {
-                toolName: (toolCall as any).toolName || (toolCall as any).name || 'tool',
+                toolName: normalizedName,
                 state: 'running',
                 args: (toolCall as any).args,
                 id: toolId,
@@ -467,7 +482,7 @@ export default function Home() {
       } else {
         pendingToolInvocationsRef.current.push({
           id: toolId,
-          toolName: (toolCall as any).toolName || (toolCall as any).name || 'tool',
+          toolName: normalizedName,
           state: 'running',
           args: (toolCall as any).args,
         });

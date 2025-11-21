@@ -4,6 +4,7 @@ import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zo
 import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById, promoteAttachmentToLibrary, getAgentDefaultAttachments } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
+import { NotionPageCache } from '@/lib/tools/notion-cache';
 import type { ToolName } from '@/lib/tools/definitions';
 import { randomUUID } from 'crypto';
 import { assertBunRuntime } from '@/lib/utils/runtime';
@@ -119,6 +120,17 @@ const toDataUrlWithResize = async (
 };
 
 export async function POST(req: Request) {
+  let notionCache: NotionPageCache | undefined;
+  const cleanupNotionCache = async () => {
+    if (!notionCache) return;
+    try {
+      await notionCache.cleanup();
+    } catch (error) {
+      console.error('Failed to clean temporary Notion cache:', error);
+    }
+    notionCache = undefined;
+  };
+
   try {
     const { messages, conversationId, userId, attachments, userTimezone, agentId } = await req.json();
     const headerTimezone = req.headers.get('X-User-Timezone');
@@ -391,6 +403,8 @@ export async function POST(req: Request) {
           apiKey: anthropicApiKey,
         })
       : null;
+
+    notionCache = new NotionPageCache();
     
     // In-memory tool events captured during this response (for history)
     const toolEvents: Array<{
@@ -434,7 +448,7 @@ export async function POST(req: Request) {
             console.log(`Tool called: ${toolName}`, args);
             const toolCallId = randomUUID();
             try {
-              const result = await executeTool(toolName as ToolName, args, userId);
+              const result = await executeTool(toolName as ToolName, args, userId, { notionCache });
               console.log(`Tool result: ${toolName}`, result);
               toolEvents.push({
                 type: 'dynamic-tool',
@@ -480,37 +494,37 @@ export async function POST(req: Request) {
     }
     if (allowDateTimeTool) {
       aiTools['get_current_datetime'] = defineTool({
-      description: tools['get_current_datetime'].description,
-      inputSchema: zodSchema(tools['get_current_datetime'].parameters as any),
-      execute: async (args: any) => {
-        console.log('Tool called: get_current_datetime', args);
-        const toolCallId = randomUUID();
-        try {
-          const result = await executeTool('get_current_datetime', args, userId);
-          console.log('Tool result: get_current_datetime', result);
-          toolEvents.push({
-            type: 'dynamic-tool',
-            toolName: 'get_current_datetime',
-            toolCallId,
-            state: 'output-available',
-            input: args,
-            output: result,
-          });
-          return result;
-        } catch (e: any) {
-          const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
-          toolEvents.push({
-            type: 'dynamic-tool',
-            toolName: 'get_current_datetime',
-            toolCallId,
-            state: 'output-error',
-            input: args,
-            errorText: String(msg),
-          });
-          throw e;
-        }
-      },
-    });
+        description: tools['get_current_datetime'].description,
+        inputSchema: zodSchema(tools['get_current_datetime'].parameters as any),
+        execute: async (args: any) => {
+          console.log('Tool called: get_current_datetime', args);
+          const toolCallId = randomUUID();
+          try {
+            const result = await executeTool('get_current_datetime', args, userId, { notionCache });
+            console.log('Tool result: get_current_datetime', result);
+            toolEvents.push({
+              type: 'dynamic-tool',
+              toolName: 'get_current_datetime',
+              toolCallId,
+              state: 'output-available',
+              input: args,
+              output: result,
+            });
+            return result;
+          } catch (e: any) {
+            const msg = e && typeof e === 'object' && 'message' in e ? (e as any).message : 'Tool failed';
+            toolEvents.push({
+              type: 'dynamic-tool',
+              toolName: 'get_current_datetime',
+              toolCallId,
+              state: 'output-error',
+              input: args,
+              errorText: String(msg),
+            });
+            throw e;
+          }
+        },
+      });
       availableToolsList.push({
         name: 'get_current_datetime',
         description: tools['get_current_datetime'].description
@@ -714,6 +728,8 @@ You also have access to the get_current_datetime tool if you need to get the cur
           }
         } catch (error) {
           console.error('Error saving assistant message:', error);
+        } finally {
+          await cleanupNotionCache();
         }
       },
     });
@@ -726,6 +742,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
       },
     });
   } catch (error) {
+    await cleanupNotionCache();
     console.error('Chat API error:', error);
     if (error && typeof error === 'object') {
       const err: any = error;
