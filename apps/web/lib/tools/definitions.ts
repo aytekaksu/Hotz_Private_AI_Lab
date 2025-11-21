@@ -168,15 +168,11 @@ const toolDescriptors = [
   {
     name: 'get_notion_page',
     displayName: 'Get Page Details',
-    description:
-      'Get Notion page details with properties plus a head/tail preview (first and last 256 lines). Reuse the returned cache_key with start_line/end_line to pull additional slices without reloading the whole page.',
+    description: 'Get complete details of a Notion page including its properties and content.',
     category: 'Notion',
     authProvider: 'notion',
     parameters: z.object({
       page_id: z.string().describe('The ID of the page to retrieve'),
-      cache_key: z.string().optional().describe('Opaque key returned from a previous call in this response; reuse it to request more slices of the same page'),
-      start_line: z.number().int().positive().optional().describe('1-based line number to start a slice; defaults to first line when omitted'),
-      end_line: z.number().int().positive().optional().describe('1-based inclusive line number to end the slice; defaults to a ~256 line window from start_line when omitted'),
     }),
   },
   {
