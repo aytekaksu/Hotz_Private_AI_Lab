@@ -173,82 +173,6 @@ const clampLinesByChars = (lines: string[], maxChars: number) => {
   return { lines: out, charCount: used, truncated };
 };
 
-const propertyValueToString = (prop: any): string => {
-  if (!prop || typeof prop !== 'object') return JSON.stringify(prop);
-  switch (prop.type) {
-    case 'title':
-    case 'rich_text':
-      return Array.isArray((prop as any)[prop.type])
-        ? richTextToPlainString((prop as any)[prop.type] as any)
-        : '';
-    case 'number':
-      return prop.number !== null && prop.number !== undefined ? String(prop.number) : '';
-    case 'checkbox':
-      return prop.checkbox ? 'true' : 'false';
-    case 'date':
-      return prop.date ? `${prop.date.start || ''}${prop.date.end ? ` -> ${prop.date.end}` : ''}` : '';
-    case 'select':
-      return prop.select ? prop.select.name || '' : '';
-    case 'multi_select':
-      return Array.isArray(prop.multi_select) ? prop.multi_select.map((s: any) => s.name).join(', ') : '';
-    case 'status':
-      return prop.status ? prop.status.name || '' : '';
-    case 'url':
-      return prop.url || '';
-    case 'email':
-      return prop.email || '';
-    case 'phone_number':
-      return prop.phone_number || '';
-    case 'people':
-      return Array.isArray(prop.people) ? prop.people.map((p: any) => p.name || p.id || '').join(', ') : '';
-    case 'files':
-      return Array.isArray(prop.files)
-        ? prop.files
-            .map((f: any) => {
-              if (f?.name) return f.name;
-              if (f?.file?.url) return f.file.url;
-              if (f?.external?.url) return f.external.url;
-              return '';
-            })
-            .filter(Boolean)
-            .join(', ')
-        : '';
-    case 'relation':
-      return Array.isArray(prop.relation) ? prop.relation.map((r: any) => r.id).join(', ') : '';
-    case 'formula':
-      if (prop.formula?.type === 'string') return prop.formula.string || '';
-      if (prop.formula?.type === 'number') return prop.formula.number !== null ? String(prop.formula.number) : '';
-      if (prop.formula?.type === 'boolean') return prop.formula.boolean ? 'true' : 'false';
-      return '';
-    case 'rollup':
-      if (prop.rollup?.type === 'number') return prop.rollup.number !== null ? String(prop.rollup.number) : '';
-      if (prop.rollup?.type === 'array') {
-        return prop.rollup.array.map((item: any) => propertyValueToString(item)).join('; ');
-      }
-      return '';
-    default:
-      return JSON.stringify(prop);
-  }
-};
-
-const databasePageToLines = (page: any): string[] => {
-  const title = extractPlainTextTitle(page);
-  const lines: string[] = [];
-  lines.push(`Entry: ${title || page.id}`);
-  lines.push(`  id: ${page.id}`);
-  if (page.url) lines.push(`  url: ${page.url}`);
-  if (page.created_time) lines.push(`  created_time: ${page.created_time}`);
-  if (page.last_edited_time) lines.push(`  last_edited_time: ${page.last_edited_time}`);
-
-  if (page.properties && typeof page.properties === 'object') {
-    for (const [key, value] of Object.entries(page.properties as Record<string, any>)) {
-      lines.push(`  ${key}: ${propertyValueToString(value)}`);
-    }
-  }
-
-  return lines;
-};
-
 export async function searchNotion(
   userId: string,
   params: {
@@ -312,130 +236,28 @@ export async function queryNotionDatabase(
     database_id: string;
     filters?: any;
     sorts?: any[];
-    cache_key?: string | null;
-    start_line?: number;
-    end_line?: number;
-  },
-  context?: NotionToolContext,
+  }
 ): Promise<any> {
   try {
-    const cache = context?.notionCache ?? new NotionPageCache();
-    const normalizeNumber = (value: number | undefined) =>
-      Number.isFinite(value as number) ? Math.max(1, Math.floor(value as number)) : undefined;
-    const requestedStart = normalizeNumber(params.start_line);
-    const requestedEnd = normalizeNumber(params.end_line);
-
-    console.info('[notion] queryNotionDatabase start', {
-      databaseId: params.database_id,
-      cacheKey: params.cache_key || null,
-      startLine: params.start_line ?? null,
-      endLine: params.end_line ?? null,
-      previewLines: PREVIEW_LINE_COUNT,
-      previewCharLimit: MAX_PREVIEW_CHARS,
+    const notion = await getNotionClient(userId);
+    
+    const response = await notion.databases.query({
+      database_id: params.database_id,
+      filter: params.filters,
+      sorts: params.sorts,
     });
-
-    let cached = cache.getByKey(params.cache_key) || cache.getByPageId(params.database_id);
-    const reusedCache = !!cached;
-
-    if (!cached || cached.pageId !== params.database_id) {
-      const notion = await getNotionClient(userId);
-      const allResults: any[] = [];
-      let cursor: string | undefined;
-      do {
-        const response = await notion.databases.query({
-          database_id: params.database_id,
-          filter: params.filters,
-          sorts: params.sorts,
-          start_cursor: cursor,
-          page_size: 100,
-        });
-        allResults.push(...response.results);
-        cursor = response.has_more ? (response as any).next_cursor ?? undefined : undefined;
-      } while (cursor);
-
-      const lines: string[] = [];
-      for (const page of allResults) {
-        lines.push(...databasePageToLines(page));
-      }
-
-      cached = await cache.store(params.database_id, lines, {
-        properties: null,
-        url: null,
-        created_time: null,
-        last_edited_time: null,
-      });
-    } else {
-      cached = (await cache.ensureLines(cached.cacheKey)) || cached;
-    }
-
-    if (!cached) {
-      return {
-        success: false,
-        error: 'Failed to cache Notion query results.',
-        debug: { databaseId: params.database_id, cacheKey: params.cache_key || null },
-      };
-    }
-
-    const totalLines = cached.lineCount;
-    const headEnd = Math.max(0, Math.min(PREVIEW_LINE_COUNT, totalLines));
-    const headLinesRaw = cached.lines.slice(0, PREVIEW_LINE_COUNT);
-    const headLines = clampLinesByChars(headLinesRaw, MAX_PREVIEW_CHARS);
-    const tailStart = Math.max(1, totalLines - PREVIEW_LINE_COUNT + 1);
-    const tailLinesRaw = cached.lines.slice(-PREVIEW_LINE_COUNT);
-    const tailLines = clampLinesByChars(tailLinesRaw, MAX_PREVIEW_CHARS);
-
-    let range:
-      | {
-          start: number;
-          end: number;
-          lines: string[];
-          char_count: number;
-          truncated: boolean;
-        }
-      | undefined;
-
-    if (typeof requestedStart === 'number') {
-      const desiredStart = requestedStart;
-      const desiredEnd =
-        typeof requestedEnd === 'number'
-          ? requestedEnd
-          : requestedStart + DEFAULT_RANGE_SIZE - 1;
-
-      const slice = await cache.slice(cached.cacheKey, desiredStart, desiredEnd);
-      if (slice) {
-        const cappedRange = clampLinesByChars(slice.lines, MAX_PREVIEW_CHARS);
-        range = {
-          start: slice.start,
-          end: slice.end,
-          lines: cappedRange.lines,
-          char_count: cappedRange.charCount,
-          truncated: cappedRange.truncated,
-        };
-      }
-    }
-
+    
     return {
       success: true,
-      cache_key: cached.cacheKey,
-      line_count: totalLines,
-      head: {
-        start: totalLines === 0 ? 0 : 1,
-        end: headEnd,
-        lines: headLines.lines,
-        char_count: headLines.charCount,
-        truncated: headLines.truncated,
-      },
-      tail: {
-        start: totalLines === 0 ? 0 : tailStart,
-        end: totalLines,
-        lines: tailLines.lines,
-        char_count: tailLines.charCount,
-        truncated: tailLines.truncated,
-      },
-      range,
-      source: reusedCache ? 'cache' : 'fresh',
-      note:
-        'Use cache_key with start_line and end_line to pull specific slices without reloading the entire result set.',
+      results: response.results.map((page: any) => ({
+        id: page.id,
+        properties: page.properties,
+        url: page.url,
+        created_time: page.created_time,
+        last_edited_time: page.last_edited_time,
+      })),
+      count: response.results.length,
+      has_more: response.has_more,
     };
   } catch (error: any) {
     console.error('Error querying Notion database:', error);

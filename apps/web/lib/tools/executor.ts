@@ -50,7 +50,7 @@ export async function executeTool(
         return await notion.searchNotion(userId, args);
       
       case 'query_notion_database':
-        return await notion.queryNotionDatabase(userId, args, context);
+        return await notion.queryNotionDatabase(userId, args);
       
       case 'create_notion_page':
         return await notion.createNotionPage(userId, args);
@@ -82,4 +82,5 @@ export async function executeTool(
     };
   }
 }
+
 
