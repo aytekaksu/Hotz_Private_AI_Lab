@@ -121,13 +121,17 @@ const toolDescriptors = [
   {
     name: 'query_notion_database',
     displayName: 'Query Database',
-    description: 'Search and filter pages in a Notion database. Use this to find specific pages, view database contents, or query with filters.',
+    description:
+      'Query a Notion database with filters/sorts. Returns a head/tail preview (first/last 256 lines) of the results. Reuse cache_key with start_line/end_line to fetch additional slices without reloading everything.',
     category: 'Notion',
     authProvider: 'notion',
     parameters: z.object({
       database_id: z.string().describe('The ID of the Notion database to query'),
       filters: z.record(z.any()).optional().describe('Notion API filter object'),
       sorts: z.array(z.any()).optional().describe('Notion API sort array'),
+      cache_key: z.string().optional().describe('Opaque key from a previous call; reuse to request more slices without refetching the database'),
+      start_line: z.number().int().positive().optional().describe('1-based line number to start a slice of the flattened results'),
+      end_line: z.number().int().positive().optional().describe('1-based inclusive line number to end the slice; defaults to a ~256-line window from start_line'),
     }),
   },
   {

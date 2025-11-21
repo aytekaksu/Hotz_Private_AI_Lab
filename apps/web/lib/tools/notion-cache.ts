@@ -11,8 +11,8 @@ export type CachedNotionPage = {
   filePath: string;
   properties: any;
   url?: string | null;
-  created_time?: string;
-  last_edited_time?: string;
+  created_time?: string | null;
+  last_edited_time?: string | null;
 };
 
 export class NotionPageCache {
@@ -42,8 +42,8 @@ export class NotionPageCache {
     meta: {
       properties: any;
       url?: string | null;
-      created_time?: string;
-      last_edited_time?: string;
+      created_time?: string | null;
+      last_edited_time?: string | null;
     },
   ): Promise<CachedNotionPage> {
     await this.ensureDir();
