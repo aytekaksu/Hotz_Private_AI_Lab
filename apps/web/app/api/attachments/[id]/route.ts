@@ -14,6 +14,9 @@ export async function GET(
     if (!attachment) {
       return new Response('Attachment not found', { status: 404 });
     }
+    if (attachment.is_encrypted) {
+      return Response.json({ error: 'Encrypted attachment requires a password' }, { status: 403 });
+    }
     
     const file = Bun.file(attachment.path);
     if (!(await file.exists())) {

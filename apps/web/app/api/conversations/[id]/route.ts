@@ -3,6 +3,11 @@ import { getConversationById, getMessagesByConversationId, deleteConversation, g
 
 export const runtime = 'nodejs';
 
+const sanitizeAttachment = (att: any) => {
+  const { encryption_password_hash, failed_attempts, ...rest } = att || {};
+  return rest;
+};
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -34,7 +39,7 @@ export async function GET(
           parts: partsOut,
           id: msg.id,
           created_at: msg.created_at,
-          attachments: getAttachmentsByMessageId(msg.id),
+          attachments: getAttachmentsByMessageId(msg.id).map(sanitizeAttachment),
         };
       })
     });

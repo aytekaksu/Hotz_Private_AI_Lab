@@ -338,6 +338,7 @@ export default function AgentsIndexPage() {
               onDeselect={onDeselectFile}
               refreshToken={fileManagerRefresh}
               onMutate={() => setFileManagerRefresh((v) => v + 1)}
+              allowEncryptedSelection={false}
             />
           </div>
 

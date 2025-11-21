@@ -74,6 +74,7 @@ export function AgentPromptFields({
             onDeselect={() => setUpload(null)}
             refreshToken={fileManagerRefresh}
             onMutate={onFileManagerMutate}
+            allowEncryptedSelection={false}
           />
         </div>
       </div>

@@ -8,6 +8,8 @@ import type { ToolName } from '@/lib/tools/definitions';
 import { randomUUID } from 'crypto';
 import { assertBunRuntime } from '@/lib/utils/runtime';
 import sharp from 'sharp';
+import { AttachmentAccessError, readAttachmentBytes } from '@/lib/files/attachment-access';
+import { extractTextFromBytes } from '@/lib/files/text-extraction';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,17 +73,23 @@ const toUIParts = (message: IncomingMessage): any[] => {
 const MAX_IMAGE_DIMENSION = Number(process.env.MAX_IMAGE_DIMENSION || 8000);
 
 const toDataUrlWithResize = async (
-  path: string,
+  path: string | null,
   mediaType: string | undefined,
+  preloadedBytes?: Uint8Array,
 ): Promise<string | null> => {
   try {
-    const file = Bun.file(path);
-    if (!(await file.exists())) {
-      console.error('Image attachment missing on disk:', path);
-      return null;
+    let buffer: Buffer;
+    if (preloadedBytes) {
+      buffer = Buffer.from(preloadedBytes);
+    } else {
+      const file = Bun.file(path || '');
+      if (!(await file.exists())) {
+        console.error('Image attachment missing on disk:', path);
+        return null;
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      buffer = Buffer.from(new Uint8Array(arrayBuffer));
     }
-    const arrayBuffer = await file.arrayBuffer();
-    let buffer = Buffer.from(new Uint8Array(arrayBuffer));
     try {
       const img = sharp(buffer);
       const metadata = await img.metadata();
@@ -185,22 +193,28 @@ export async function POST(req: Request) {
       return new Response('Messages required', { status: 400 });
     }
     
-    const normalizedAttachments: Array<{ id: string; addToLibrary?: boolean }> = Array.isArray(attachments)
+    const normalizedAttachments: Array<{ id: string; addToLibrary?: boolean; password?: string }> = Array.isArray(attachments)
       ? attachments
           .map((att: any) => {
             if (typeof att === 'string') return { id: att, addToLibrary: false };
             if (att && typeof att.id === 'string') {
-              return { id: att.id, addToLibrary: !!att.addToLibrary };
+              return { id: att.id, addToLibrary: !!att.addToLibrary, password: typeof att.password === 'string' ? att.password : undefined };
             }
             return null;
           })
-          .filter(Boolean) as Array<{ id: string; addToLibrary?: boolean }>
+          .filter(Boolean) as Array<{ id: string; addToLibrary?: boolean; password?: string }>
       : [];
     const attachmentIds = normalizedAttachments.map((a) => a.id);
     const addToLibraryMap = new Map(normalizedAttachments.map((a) => [a.id, !!a.addToLibrary]));
+    const passwordMap = new Map(
+      normalizedAttachments
+        .filter((a) => typeof a.password === 'string' && a.password.length > 0)
+        .map((a) => [a.id, a.password as string]),
+    );
 
     let attachmentsFromDb =
       Array.isArray(attachmentIds) && attachmentIds.length > 0 ? getAttachmentsByIds(attachmentIds) : [];
+    const requestedAttachmentIds = new Set(attachmentIds);
 
     if (resolvedAgentId) {
       try {
@@ -220,6 +234,13 @@ export async function POST(req: Request) {
       }
     }
 
+    attachmentsFromDb = attachmentsFromDb.filter((att) => {
+      if (!requestedAttachmentIds.has(att.id) && att.is_encrypted) {
+        return false;
+      }
+      return true;
+    });
+
     // Promote any pending uploads flagged for library inclusion before linking to the message
     attachmentsFromDb = attachmentsFromDb.map((att) => {
       const shouldPromote = addToLibraryMap.get(att.id);
@@ -229,6 +250,61 @@ export async function POST(req: Request) {
       }
       return att;
     });
+
+    const decryptedBytes = new Map<string, Uint8Array>();
+    const getAttachmentBytes = async (att: any): Promise<Uint8Array | null> => {
+      if (att.is_encrypted) {
+        const password = passwordMap.get(att.id);
+        if (!password) {
+          throw new AttachmentAccessError('password-required', 'Password required for encrypted attachment');
+        }
+        if (decryptedBytes.has(att.id)) {
+          return decryptedBytes.get(att.id)!;
+        }
+        const bytes = await readAttachmentBytes(att as any, password);
+        decryptedBytes.set(att.id, bytes);
+        return bytes;
+      }
+      const file = Bun.file(att.path);
+      if (!(await file.exists())) {
+        throw new AttachmentAccessError('missing-file', 'Attachment contents missing on disk');
+      }
+      const buffer = await file.arrayBuffer();
+      return new Uint8Array(buffer);
+    };
+
+    try {
+      for (const att of attachmentsFromDb) {
+        if (att.is_encrypted) {
+          const bytes = await getAttachmentBytes(att);
+          if (bytes && !att.text_content) {
+            const extracted = await extractTextFromBytes(bytes, att.mimetype);
+            if (extracted && extracted.trim()) {
+              att.text_content = extracted;
+            }
+          }
+          if (bytes && (!att.size || att.size <= 0)) {
+            att.size = bytes.byteLength;
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof AttachmentAccessError) {
+        const status =
+          error.code === 'invalid-password'
+            ? /deleted/i.test(error.message)
+              ? 410
+              : 401
+            : error.code === 'password-required'
+              ? 400
+              : error.code === 'missing-file'
+                ? 404
+                : 500;
+        return Response.json({ error: error.message }, { status });
+      }
+      console.error('Attachment preprocessing failed:', error);
+      return Response.json({ error: 'Failed to prepare attachments' }, { status: 500 });
+    }
 
     // Save user message to database (with attachment text appended when available)
     const userMessage = incomingMessages[incomingMessages.length - 1];
@@ -254,18 +330,29 @@ export async function POST(req: Request) {
 
       const MAX_IMAGES = Number(process.env.MAX_IMAGE_ATTACHMENTS || 5);
       const imageAtts = attachmentsFromDb.filter((a) => a.mimetype?.startsWith('image/')).slice(0, MAX_IMAGES);
-      const embeddedImageParts = await Promise.all(
-        imageAtts.map(async (img) => {
-          const dataUrl = await toDataUrlWithResize(img.path, img.mimetype);
-          if (!dataUrl) return null;
-          return {
-            type: 'file',
-            mediaType: img.mimetype || 'image/jpeg',
-            filename: img.filename,
-            url: dataUrl,
-          };
-        })
-      );
+      let embeddedImageParts: Array<any | null> = [];
+      try {
+        embeddedImageParts = await Promise.all(
+          imageAtts.map(async (img) => {
+            const bytes = decryptedBytes.get(img.id) ?? (await getAttachmentBytes(img));
+            if (!bytes) return null;
+            const dataUrl = await toDataUrlWithResize(img.path, img.mimetype, bytes);
+            if (!dataUrl) return null;
+            return {
+              type: 'file',
+              mediaType: img.mimetype || 'image/jpeg',
+              filename: img.filename,
+              url: dataUrl,
+            };
+          })
+        );
+      } catch (error) {
+        if (error instanceof AttachmentAccessError) {
+          const status = error.code === 'missing-file' ? 404 : error.code === 'invalid-password' ? 401 : 400;
+          return Response.json({ error: error.message }, { status });
+        }
+        console.error('Failed to prepare image attachments:', error);
+      }
 
       const messageParts: any[] = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }];
       for (const part of embeddedImageParts) {

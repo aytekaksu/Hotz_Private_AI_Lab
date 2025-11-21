@@ -9,7 +9,7 @@ import {
   useMemo,
   useCallback,
   type ChangeEvent,
-type FormEvent,
+  type FormEvent,
 } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -79,6 +79,87 @@ const formatRelativeDate = (date: Date) => {
   });
 };
 
+function ToolsList({
+  availableTools,
+  onToggle,
+}: {
+  availableTools: ToolDefinition[];
+  onToggle: (toolName: string, enabled: boolean) => Promise<void> | void;
+}) {
+  return (
+    <div className="space-y-2">
+      {Object.entries(
+        availableTools.reduce((acc: Record<string, ToolDefinition[]>, t) => {
+          (acc[t.category] ||= []).push(t);
+          return acc;
+        }, {}),
+      ).map(([category, items]) => (
+        <details key={category} className="group rounded-xl border border-border bg-surface/60 transition-all">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2">
+            <span className="text-sm font-semibold text-foreground">{category}</span>
+            <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+              {(() => {
+                const togglable = items.filter((t) => t.available);
+                const allEnabled = togglable.length > 0 && togglable.every((t) => t.enabled);
+                return (
+                  <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={allEnabled}
+                      onChange={async (e) => {
+                        const checked = e.target.checked;
+                        for (const t of togglable) {
+                          try {
+                            await onToggle(t.toolName, checked);
+                          } catch { }
+                        }
+                      }}
+                    />
+                    <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
+                    <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
+                  </label>
+                );
+              })()}
+              <svg viewBox="0 0 20 20" className="h-4 w-4 text-muted transition-transform group-open:-rotate-90" fill="none" stroke="currentColor">
+                <path d="M13 5l-6 5 6 5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </summary>
+          <div className="grid grid-rows-[0fr] transition-all duration-300 group-open:grid-rows-[1fr] border-t border-border">
+            <div className="overflow-hidden space-y-2 px-3 py-2">
+              {items.map((tool) => (
+                <label
+                  key={tool.toolName}
+                  className={`flex items-start justify-between gap-3 rounded-lg border border-transparent px-2 py-1.5 text-sm ${tool.available ? '' : 'opacity-60'
+                    }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{tool.displayName}</p>
+                    <p className="mt-0.5 text-xs text-muted">{tool.description}</p>
+                    {!tool.available && <p className="mt-1 text-xs text-muted">Connect {tool.authProvider} to enable.</p>}
+                  </div>
+                  <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={tool.available && tool.enabled}
+                      disabled={!tool.available}
+                      onChange={(event) => onToggle(tool.toolName, event.target.checked)}
+                    />
+                    <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
+                    <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
+                  </label>
+                </label>
+              ))}
+            </div>
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
@@ -87,7 +168,7 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  type ChatAttachment = ManagedFile & { addToLibrary?: boolean };
+  type ChatAttachment = ManagedFile & { addToLibrary?: boolean; encryptionPassword?: string };
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [availableTools, setAvailableTools] = useState<ToolDefinition[]>([]);
@@ -141,7 +222,9 @@ export default function Home() {
   }, [pathname]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      return;
+    }
     const handler = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
@@ -283,14 +366,14 @@ export default function Home() {
         const data = await response.json();
         const normalized: ToolDefinition[] = Array.isArray(data.tools)
           ? data.tools.map((tool: any) => ({
-              toolName: tool.toolName,
-              displayName: tool.displayName,
-              description: tool.description,
-              category: tool.category,
-              authProvider: tool.authProvider,
-              available: !!tool.available,
-              enabled: !!tool.enabled,
-            }))
+            toolName: tool.toolName,
+            displayName: tool.displayName,
+            description: tool.description,
+            category: tool.category,
+            authProvider: tool.authProvider,
+            available: !!tool.available,
+            enabled: !!tool.enabled,
+          }))
           : [];
         setAvailableTools(normalized);
       } catch (error) {
@@ -341,7 +424,7 @@ export default function Home() {
       preconnect:
         typeof (baseFetch as any)?.preconnect === 'function'
           ? (baseFetch as any).preconnect.bind(baseFetch)
-          : async (_url: RequestInfo | URL) => {},
+          : async (_url: RequestInfo | URL) => { },
     }) as typeof fetch;
 
     return new DefaultChatTransport({
@@ -493,7 +576,8 @@ export default function Home() {
     }
 
     const currentAttachments = [...attachments];
-    pendingAttachmentsRef.current = currentAttachments;
+    const safeAttachments = currentAttachments.map(({ encryptionPassword, ...rest }) => rest);
+    pendingAttachmentsRef.current = safeAttachments;
     setAttachments([]);
     // Clear prompt immediately so it doesn't linger in the field
     setInput('');
@@ -510,7 +594,7 @@ export default function Home() {
         }
         const metadata = {
           ...((lastMessage as any).metadata ?? {}),
-          attachments: currentAttachments,
+          attachments: safeAttachments,
         };
         const updated = [...prev];
         updated[lastIndex] = { ...lastMessage, metadata } as typeof lastMessage;
@@ -528,6 +612,7 @@ export default function Home() {
             attachments: currentAttachments.map((att) => ({
               id: att.id,
               addToLibrary: att.is_library ? false : att.addToLibrary !== false,
+              password: att.encryptionPassword,
             })),
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             agentId: !currentConversationIdRef.current && selectedAgentForNextChat ? selectedAgentForNextChat.id : undefined,
@@ -804,7 +889,7 @@ export default function Home() {
               router.replace(url);
               return;
             }
-          } catch {}
+          } catch { }
         }
         // Create and forward to a fresh chat
         const res = await fetch('/api/conversations', {
@@ -878,9 +963,16 @@ export default function Home() {
   };
 
   const addAttachmentFromLibrary = (attachment: ManagedFile) => {
+    let nextAttachment: ChatAttachment = { ...(attachment as ChatAttachment), addToLibrary: false };
+    if (attachment.is_encrypted && !attachment.encryptionPassword) {
+      const password = prompt(`Enter the password for "${attachment.filename}"`) || '';
+      if (!password.trim()) return;
+      nextAttachment = { ...nextAttachment, encryptionPassword: password };
+    }
+
     setAttachments((prev) => {
       if (prev.some((a) => a.id === attachment.id)) return prev;
-      return [...prev, { ...(attachment as ChatAttachment), addToLibrary: false }];
+      return [...prev, nextAttachment];
     });
   };
 
@@ -1130,11 +1222,10 @@ export default function Home() {
                         key={conversation.id}
                         type="button"
                         onClick={() => loadConversation(conversation.id)}
-                        className={`group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2 text-left transition ${
-                          isActive
-                            ? 'border-accent bg-accent/10 text-foreground'
-                            : 'hover:border-border hover:bg-surface/80'
-                        }`}
+                        className={`group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2 text-left transition ${isActive
+                          ? 'border-accent bg-accent/10 text-foreground'
+                          : 'hover:border-border hover:bg-surface/80'
+                          }`}
                       >
                         <div className="min-w-0 pr-2">
                           <div className="flex items-center gap-2">
@@ -1360,6 +1451,58 @@ export default function Home() {
     </ReactMarkdown>
   );
 
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.download = filename || 'file';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const handleOpenAttachment = async (attachment: any) => {
+    if (attachment?.is_encrypted) {
+      let lastError: string | null = null;
+      while (true) {
+        const password: string =
+          prompt(
+            lastError ? `${lastError}\n\nEnter the password for "${attachment.filename}"` : `Enter the password for "${attachment.filename}"`,
+          ) || '';
+        if (!password.trim()) return;
+        try {
+          const res: Response = await fetch(`/api/attachments/${attachment.id}/unlock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+          });
+          if (!res.ok) {
+            const data: any = await res.json().catch(() => ({}));
+            const message: string = data.error || 'Unable to open file with that password.';
+            if (res.status === 410 || /deleted/i.test(message)) {
+              alert(message);
+              return;
+            }
+            lastError = message;
+            continue;
+          }
+          const blob = await res.blob();
+          triggerDownload(blob, attachment.filename || 'file');
+          return;
+        } catch (err) {
+          console.error('Failed to open attachment', err);
+          alert('Failed to open attachment');
+          return;
+        }
+      }
+    } else {
+      window.open(`/api/attachments/${attachment.id}`, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const prettyToolName = (n: any): string => {
     if (typeof n === 'string' && n.trim().length > 0) return formatToolName(n);
     return 'Tool';
@@ -1437,7 +1580,7 @@ export default function Home() {
     );
   };
 
-  
+
 
   return (
     <div className="relative flex h-[100dvh] overflow-hidden bg-background text-foreground">
@@ -1447,8 +1590,8 @@ export default function Home() {
         aria-label="Open Settings"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-          <path d="M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" strokeWidth="1.6"/>
-          <path d="M20 12a7.9 7.9 0 0 0-.2-1.7l1.9-1.1-1.9-3.3-2.2 0.9a7.9 7.9 0 0 0-1.5-1l0.4-2.3h-3.8l0.4 2.3a7.9 7.9 0 0 0-1.5 1l-2.2-0.9L5.3 9.2l1.9 1.1A7.9 7.9 0 0 0 7 12c0 0.6 0.1 1.1 0.2 1.7l-1.9 1.1 1.9 3.3 2.2-0.9a7.9 7.9 0 0 0 1.5 1l-0.4 2.3h3.8l-0.4-2.3a7.9 7.9 0 0 0 1.5-1l2.2 0.9 1.9-3.3-1.9-1.1c0.1-0.6 0.2-1.1 0.2-1.7Z" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" strokeWidth="1.6" />
+          <path d="M20 12a7.9 7.9 0 0 0-.2-1.7l1.9-1.1-1.9-3.3-2.2 0.9a7.9 7.9 0 0 0-1.5-1l0.4-2.3h-3.8l0.4 2.3a7.9 7.9 0 0 0-1.5 1l-2.2-0.9L5.3 9.2l1.9 1.1A7.9 7.9 0 0 0 7 12c0 0.6 0.1 1.1 0.2 1.7l-1.9 1.1 1.9 3.3 2.2-0.9a7.9 7.9 0 0 0 1.5 1l-0.4 2.3h3.8l-0.4-2.3a7.9 7.9 0 0 0 1.5-1l2.2 0.9 1.9-3.3-1.9-1.1c0.1-0.6 0.2-1.1 0.2-1.7Z" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         Settings
       </a>
@@ -1458,9 +1601,8 @@ export default function Home() {
             <div className="fixed inset-0 z-20 bg-black/50" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
           )}
           <div
-            className={`fixed inset-y-0 left-0 z-40 w-[min(22rem,90vw)] transform transition-transform duration-200 lg:hidden ${
-              sidebarOpen ? 'translate-x-0' : '-translate-x-[110%]'
-            }`}
+            className={`fixed inset-y-0 left-0 z-40 w-[min(22rem,90vw)] transform transition-transform duration-200 lg:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-[110%]'
+              }`}
           >
             {conversationList}
           </div>
@@ -1509,10 +1651,10 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setSidebarOpen((open) => !open)}
-              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-foreground backdrop-blur-sm"
+              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-foreground/80 transition hover:bg-card/40 hover:text-foreground"
               aria-label="Toggle navigation menu"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-6 w-6">
                 <path d="M4 7h16M4 12h16M4 17h16" strokeWidth="1.6" strokeLinecap="round" />
               </svg>
             </button>
@@ -1526,20 +1668,20 @@ export default function Home() {
             <button
               type="button"
               onClick={startNewChat}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-accent backdrop-blur-sm"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-foreground/80 transition hover:bg-card/40 hover:text-accent"
               aria-label="New chat"
             >
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-5 w-5">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-6 w-6">
                 <path d="M10 4.167v11.666M4.167 10h11.666" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
             <button
               type="button"
               onClick={() => router.push('/settings')}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/40 bg-card/40 text-foreground/80 transition hover:bg-card/60 hover:text-foreground backdrop-blur-sm"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-foreground/80 transition hover:bg-card/40 hover:text-foreground"
               aria-label="Open settings"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-6 w-6">
                 <path d="M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" strokeWidth="1.6" />
                 <path d="M20 12a7.9 7.9 0 0 0-.2-1.7l1.9-1.1-1.9-3.3-2.2.9a7.9 7.9 0 0 0-1.5-1l.4-2.3h-3.8l.4 2.3a7.9 7.9 0 0 0-1.5 1l-2.2-.9L5.3 9.2l1.9 1.1A7.9 7.9 0 0 0 7 12c0 .6.1 1.1.2 1.7l-1.9 1.1 1.9 3.3 2.2-.9a7.9 7.9 0 0 0 1.5 1l-.4 2.3h3.8l-.4-2.3a7.9 7.9 0 0 0 1.5-1l2.2.9 1.9-3.3-1.9-1.1c.1-.6.2-1.1.2-1.7Z" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -1590,8 +1732,18 @@ export default function Home() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    void handleOpenAttachment(attachment);
+                                  }}
                                 >
-                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                  {attachment.is_encrypted ? (
+                                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                                      <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  ) : (
+                                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                  )}
                                   {attachment.filename}
                                 </a>
                               ))}
@@ -1613,8 +1765,18 @@ export default function Home() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    void handleOpenAttachment(attachment);
+                                  }}
                                 >
-                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                  {attachment.is_encrypted ? (
+                                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                                      <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  ) : (
+                                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                  )}
                                   {attachment.filename}
                                 </a>
                               ))}
@@ -1657,14 +1819,21 @@ export default function Home() {
                 <div className="flex flex-wrap gap-2">
                   {attachments.map((attachment) => {
                     const showLibraryToggle = !attachment.is_library;
+                    const isEncrypted = !!attachment.is_encrypted;
                     return (
                       <span
                         key={attachment.id}
                         className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-foreground"
                       >
-                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-muted">
-                          <path d="M4.167 5.833h6.666L12.5 7.5h3.333v6.667H4.167V5.833Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                        {isEncrypted ? (
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-accent">
+                            <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-muted">
+                            <path d="M4.167 5.833h6.666L12.5 7.5h3.333v6.667H4.167V5.833Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
                         <span className="truncate max-w-[10rem] sm:max-w-[14rem]">{attachment.filename}</span>
                         {showLibraryToggle && (
                           <label className="inline-flex items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted transition hover:text-foreground">
@@ -1735,84 +1904,13 @@ export default function Home() {
                       </svg>
                       Apps
                     </button>
-                    {isToolsOpen && (
+                    {!isMobile && isToolsOpen && (
                       <div
                         ref={toolsPopoverRef}
-                        className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-border bg-background p-3 shadow-xl sm:w-80"
+                        className="absolute bottom-full left-0 z-20 mb-2 w-80 max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-2xl border border-border bg-background p-3 shadow-xl"
                       >
                         <p className="px-1 pb-2 text-xs text-muted">Conversation apps</p>
-                        <div className="space-y-2">
-                          {Object.entries(
-                            availableTools.reduce((acc: Record<string, ToolDefinition[]>, t) => {
-                              (acc[t.category] ||= []).push(t);
-                              return acc;
-                            }, {}),
-                          ).map(([category, items]) => (
-                            <details key={category} className="group rounded-xl border border-border bg-surface/60 transition-all">
-                              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2">
-                                <span className="text-sm font-semibold text-foreground">{category}</span>
-                                <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                                  {/* slider toggle for entire category */}
-                                  {(() => {
-                                    const togglable = items.filter((t) => t.available);
-                                    const allEnabled = togglable.length > 0 && togglable.every((t) => t.enabled);
-                                    return (
-                                      <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
-                                        <input
-                                          type="checkbox"
-                                          className="peer sr-only"
-                                          checked={allEnabled}
-                                          onChange={async (e) => {
-                                            const checked = e.target.checked;
-                                            for (const t of togglable) {
-                                              try { await toggleTool(t.toolName, checked); } catch {}
-                                            }
-                                          }}
-                                        />
-                                        <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
-                                        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
-                                      </label>
-                                    );
-                                  })()}
-                                  <svg viewBox="0 0 20 20" className="h-4 w-4 text-muted transition-transform group-open:-rotate-90" fill="none" stroke="currentColor">
-                                    <path d="M13 5l-6 5 6 5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                </div>
-                              </summary>
-                              <div className="grid grid-rows-[0fr] transition-all duration-300 group-open:grid-rows-[1fr] border-t border-border">
-                                <div className="overflow-hidden space-y-2 px-3 py-2">
-                                  {items.map((tool) => (
-                                    <label
-                                      key={tool.toolName}
-                                      className={`flex items-start justify-between gap-3 rounded-lg border border-transparent px-2 py-1.5 text-sm ${
-                                        tool.available ? '' : 'opacity-60'
-                                      }`}
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <p className="truncate font-medium">{tool.displayName}</p>
-                                        <p className="mt-0.5 text-xs text-muted">{tool.description}</p>
-                                        {!tool.available && (
-                                          <p className="mt-1 text-xs text-muted">Connect {tool.authProvider} to enable.</p>
-                                        )}
-                                      </div>
-                                      <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
-                                        <input
-                                          type="checkbox"
-                                          className="peer sr-only"
-                                          checked={tool.available && tool.enabled}
-                                          disabled={!tool.available}
-                                          onChange={(event) => toggleTool(tool.toolName, event.target.checked)}
-                                        />
-                                        <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />
-                                        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-card transition peer-checked:translate-x-4" />
-                                      </label>
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            </details>
-                          ))}
-                        </div>
+                        <ToolsList availableTools={availableTools} onToggle={toggleTool} />
                       </div>
                     )}
                   </div>
@@ -1828,10 +1926,10 @@ export default function Home() {
                       </svg>
                       Files
                     </button>
-                    {isFileManagerOpen && (
+                    {!isMobile && isFileManagerOpen && (
                       <div
                         ref={fileManagerPopoverRef}
-                        className="absolute bottom-full left-0 z-20 mb-2 w-[min(26rem,calc(100vw-2.5rem))] sm:w-[26rem]"
+                        className="absolute bottom-full left-0 z-20 mb-2 w-[26rem] max-h-[calc(100dvh-10rem)] overflow-y-auto"
                       >
                         <FileManager
                           selectedIds={attachments.map((att) => att.id)}
@@ -1875,6 +1973,36 @@ export default function Home() {
           </div>
         </footer>
       </div>
+
+      {/* Mobile Popovers */}
+      {/* Mobile Popovers */}
+      {isMobile && isToolsOpen && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setIsToolsOpen(false)} />
+          <div
+            ref={toolsPopoverRef}
+            className="fixed left-1/2 top-1/2 z-50 max-h-[80dvh] w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border bg-background p-3 shadow-xl"
+          >
+            <p className="px-1 pb-2 text-xs text-muted">Conversation apps</p>
+            <ToolsList availableTools={availableTools} onToggle={toggleTool} />
+          </div>
+        </>
+      )}
+      {isMobile && isFileManagerOpen && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setIsFileManagerOpen(false)} />
+          <div
+            ref={fileManagerPopoverRef}
+            className="fixed left-1/2 top-1/2 z-50 max-h-[80dvh] w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-y-auto"
+          >
+            <FileManager
+              selectedIds={attachments.map((att) => att.id)}
+              onSelect={addAttachmentFromLibrary}
+              onDeselect={removeAttachment}
+            />
+          </div>
+        </>
+      )}
 
       {isAgentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-10">

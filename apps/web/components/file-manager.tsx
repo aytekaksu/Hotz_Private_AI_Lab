@@ -12,6 +12,8 @@ export type ManagedFile = {
   message_id?: string | null;
   is_library?: number | boolean;
   text_content?: string | null;
+  is_encrypted?: number | boolean;
+  encryptionPassword?: string;
 };
 
 export type ManagedFolder = {
@@ -27,6 +29,7 @@ type FileManagerProps = {
   onDeselect: (fileId: string) => void;
   refreshToken?: number;
   onMutate?: () => void;
+  allowEncryptedSelection?: boolean;
 };
 
 const formatBytes = (bytes: number): string => {
@@ -60,7 +63,7 @@ const isSameOrDescendant = (path: string, target: string) => {
   return path === target || path.startsWith(target.endsWith('/') ? target : `${target}/`);
 };
 
-export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 0, onMutate }: FileManagerProps) {
+export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 0, onMutate, allowEncryptedSelection = true }: FileManagerProps) {
   const [folderPath, setFolderPath] = useState<string>('/');
   const [folders, setFolders] = useState<ManagedFolder[]>([]);
   const [files, setFiles] = useState<ManagedFile[]>([]);
@@ -69,6 +72,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
   const [error, setError] = useState<string | null>(null);
   const deletingFolderRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const encryptedUploadInputRef = useRef<HTMLInputElement>(null);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -121,6 +125,57 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
       setUploading(false);
       if (uploadInputRef.current) {
         uploadInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleEncryptedUpload = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    if (fileList.length > 1) {
+      setError('Upload encrypted files one at a time so each can have its own password.');
+      if (encryptedUploadInputRef.current) encryptedUploadInputRef.current.value = '';
+      return;
+    }
+    let password = '';
+    while (true) {
+      const first = prompt('Set a password for this encrypted file (required):') || '';
+      if (!first.trim()) {
+        if (encryptedUploadInputRef.current) encryptedUploadInputRef.current.value = '';
+        return;
+      }
+      const second = prompt('Re-enter the password to confirm:') || '';
+      if (first === second) {
+        password = first;
+        break;
+      }
+      alert('Passwords did not match. Please enter the same password twice.');
+    }
+    setUploading(true);
+    setError(null);
+    const formData = new FormData();
+    Array.from(fileList).forEach((file) => {
+      formData.append('files', file);
+    });
+    formData.append('folderPath', folderPath);
+    formData.append('isLibrary', 'true');
+    formData.append('encrypted', 'true');
+    formData.append('encryptionPassword', password);
+
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Failed to upload encrypted file');
+      }
+      await loadFolder(folderPath);
+      onMutate?.();
+    } catch (err) {
+      console.error('Encrypted file upload failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to upload encrypted file');
+    } finally {
+      setUploading(false);
+      if (encryptedUploadInputRef.current) {
+        encryptedUploadInputRef.current.value = '';
       }
     }
   };
@@ -219,6 +274,51 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
     }
   };
 
+  const handleOpenEncrypted = async (file: ManagedFile) => {
+    setError(null);
+    let lastError: string | null = null;
+    while (true) {
+      const password: string = prompt(
+        lastError ? `${lastError}\n\nEnter the password for "${file.filename}"` : `Enter the password for "${file.filename}"`,
+      ) || '';
+      if (!password.trim()) return;
+      try {
+        const res: Response = await fetch(`/api/attachments/${file.id}/unlock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (!res.ok) {
+          const data: any = await res.json().catch(() => ({}));
+          const message: string = data?.error || 'Failed to unlock file (check the password and try again)';
+          if (res.status === 410 || /deleted/i.test(message)) {
+            setError(message);
+            await loadFolder(folderPath);
+            return;
+          }
+          lastError = message;
+          continue;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.download = file.filename || 'file';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return;
+      } catch (err) {
+        console.error('Failed to open encrypted file:', err);
+        setError(err instanceof Error ? err.message : 'Failed to open encrypted file');
+        return;
+      }
+    }
+  };
+
   const handleNewFolder = async () => {
     const name = prompt('Folder name');
     if (!name || !name.trim()) return;
@@ -267,13 +367,15 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setFolderPath(getParentPath(folderPath))}
-            className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] text-muted transition hover:text-foreground"
-          >
-            ↑ Up
-          </button>
+          {folderPath !== '/' && (
+            <button
+              type="button"
+              onClick={() => setFolderPath(getParentPath(folderPath))}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] text-muted transition hover:text-foreground"
+            >
+              ↑ Up
+            </button>
+          )}
           <button
             type="button"
             onClick={handleNewFolder}
@@ -296,6 +398,19 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
               <path d="M4.167 10 10 4.167m0 0L15.833 10M10 4.167V15" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             {uploading ? 'Uploading…' : 'Upload'}
+          </label>
+          <label className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs text-muted transition hover:text-foreground">
+            <input
+              ref={encryptedUploadInputRef}
+              type="file"
+              multiple={false}
+              className="hidden"
+              onChange={(e) => handleEncryptedUpload(e.target.files)}
+            />
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+              <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {uploading ? 'Uploading…' : 'Encrypted'}
           </label>
         </div>
       </div>
@@ -347,20 +462,39 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
                   <div key={file.id} className="flex items-center gap-3 px-3 py-2 transition hover:bg-background/50">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
+                        {file.is_encrypted ? (
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-accent">
+                            <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-muted">
+                            <path d="M4.167 5.833h6.666L12.5 7.5h3.333v6.667H4.167V5.833Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
                         <span className="truncate font-medium">{file.filename}</span>
                       </div>
                       <div className="mt-0.5 text-[11px] text-muted">
                         {formatBytes(file.size)} • {formatDate(file.created_at)}
                       </div>
                       <div className="mt-1 flex items-center gap-3 text-[11px] text-muted">
-                        <a
-                          href={`/api/attachments/${file.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline transition hover:text-foreground"
-                        >
-                          Open
-                        </a>
+                        {file.is_encrypted ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEncrypted(file)}
+                            className="underline transition hover:text-foreground"
+                          >
+                            Unlock
+                          </button>
+                        ) : (
+                          <a
+                            href={`/api/attachments/${file.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline transition hover:text-foreground"
+                          >
+                            Open
+                          </a>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleRenameFile(file)}
@@ -386,9 +520,57 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
                         type="checkbox"
                         className="peer sr-only"
                         checked={isSelected}
-                        onChange={(e) => {
-                          if (e.target.checked) onSelect(file);
-                          else onDeselect(file.id);
+                        onChange={async (e) => {
+                          if (e.target.checked) {
+                            if (file.is_encrypted && !allowEncryptedSelection) {
+                              setError('Encrypted files cannot be selected here.');
+                              e.target.checked = false;
+                              return;
+                            }
+                            if (file.is_encrypted) {
+                              let lastError: string | null = null;
+                              while (true) {
+                                const password: string = prompt(
+                                  lastError
+                                    ? `${lastError}\n\nEnter the password for "${file.filename}"`
+                                    : `Enter the password for "${file.filename}"`,
+                                ) || '';
+                                if (!password.trim()) {
+                                  e.target.checked = false;
+                                  return;
+                                }
+                                try {
+                                  const res: Response = await fetch(`/api/attachments/${file.id}/unlock`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ password, validateOnly: true }),
+                                  });
+                                  if (!res.ok) {
+                                    const data: any = await res.json().catch(() => ({}));
+                                    const message: string = data?.error || 'Incorrect password';
+                                    if (res.status === 410 || /deleted/i.test(message)) {
+                                      setError(message);
+                                      e.target.checked = false;
+                                      await loadFolder(folderPath);
+                                      return;
+                                    }
+                                    lastError = message;
+                                    continue;
+                                  }
+                                  onSelect({ ...file, encryptionPassword: password });
+                                  return;
+                                } catch (err) {
+                                  console.error('Failed to validate password', err);
+                                  setError('Failed to validate password');
+                                  e.target.checked = false;
+                                  return;
+                                }
+                              }
+                            }
+                            onSelect(file);
+                          } else {
+                            onDeselect(file.id);
+                          }
                         }}
                       />
                       <span className="h-5 w-9 rounded-full bg-border transition peer-checked:bg-foreground" />

@@ -210,6 +210,19 @@ export async function POST(req: NextRequest) {
       setVersion(10);
     };
 
+    const migration11 = () => {
+      try { db.exec("ALTER TABLE attachments ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0"); } catch {}
+      try { db.exec("ALTER TABLE attachments ADD COLUMN encryption_password_hash TEXT NULL"); } catch {}
+      try { db.exec("UPDATE attachments SET is_encrypted = COALESCE(is_encrypted, 0)"); } catch {}
+      setVersion(11);
+    };
+
+    const migration12 = () => {
+      try { db.exec("ALTER TABLE attachments ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"); } catch {}
+      try { db.exec("UPDATE attachments SET failed_attempts = COALESCE(failed_attempts, 0)"); } catch {}
+      setVersion(12);
+    };
+
     try { db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE;"); } catch {}
     const current = getCurrentVersion();
     const toRun = [] as Array<() => void>;
@@ -223,6 +236,8 @@ export async function POST(req: NextRequest) {
     if (current < 8) toRun.push(migration8);
     if (current < 9) toRun.push(migration9);
     if (current < 10) toRun.push(migration10);
+    if (current < 11) toRun.push(migration11);
+    if (current < 12) toRun.push(migration12);
 
     if (toRun.length === 0) {
       return Response.json({ success: true, message: 'Database is up to date', currentVersion: current });

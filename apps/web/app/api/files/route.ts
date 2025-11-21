@@ -8,7 +8,10 @@ export async function GET(req: NextRequest) {
   try {
     const folderPath = normalizeFolderPath(req.nextUrl.searchParams.get('folderPath') || '/');
     const folders = getAttachmentFolders(folderPath);
-    const files = getAttachmentsInFolder(folderPath, true);
+    const files = getAttachmentsInFolder(folderPath, true).map((file) => {
+      const { encryption_password_hash, failed_attempts, ...rest } = file as any;
+      return rest;
+    });
 
     return Response.json({
       folderPath,

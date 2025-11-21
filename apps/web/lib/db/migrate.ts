@@ -316,6 +316,25 @@ const migrations = [
     setVersion(10);
     console.log('✓ Migration 10 completed');
   },
+
+  // Migration 11: Attachment encryption metadata
+  function migration11() {
+    console.log('Running migration 11: Attachment encryption metadata');
+    try { db.exec("ALTER TABLE attachments ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { db.exec("ALTER TABLE attachments ADD COLUMN encryption_password_hash TEXT NULL"); } catch {}
+    try { db.exec("UPDATE attachments SET is_encrypted = COALESCE(is_encrypted, 0)"); } catch {}
+    setVersion(11);
+    console.log('✓ Migration 11 completed');
+  },
+
+  // Migration 12: Track password failures
+  function migration12() {
+    console.log('Running migration 12: Attachment password attempt tracking');
+    try { db.exec("ALTER TABLE attachments ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { db.exec("UPDATE attachments SET failed_attempts = COALESCE(failed_attempts, 0)"); } catch {}
+    setVersion(12);
+    console.log('✓ Migration 12 completed');
+  },
 ];
 
 // Run migrations

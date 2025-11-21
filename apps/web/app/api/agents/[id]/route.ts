@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAgentById, updateAgent, deleteAgent } from '@/lib/db';
+import { getAgentById, updateAgent, deleteAgent, getAttachmentById } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +22,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   try {
     const body = await req.json();
     const { name, slug, extraSystemPrompt, overrideSystemPrompt, instructionsAttachmentId, instructionsAttachmentName } = body || {};
+    if (instructionsAttachmentId) {
+      const attachment = getAttachmentById(instructionsAttachmentId);
+      if (attachment?.is_encrypted) {
+        return Response.json({ error: 'Encrypted files cannot be used for agent instructions' }, { status: 400 });
+      }
+    }
     const updated = updateAgent(params.id, {
       name,
       slug,

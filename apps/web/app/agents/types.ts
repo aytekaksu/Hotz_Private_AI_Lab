@@ -38,4 +38,6 @@ export type ManagedFile = {
   message_id?: string | null;
   is_library?: number | boolean;
   text_content?: string | null;
+  is_encrypted?: number | boolean;
+  encryptionPassword?: string;
 };

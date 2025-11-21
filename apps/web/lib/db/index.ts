@@ -81,6 +81,9 @@ export interface Attachment {
   text_content?: string;
   folder_path?: string | null;
   is_library?: number | boolean;
+  is_encrypted?: number | boolean;
+  encryption_password_hash?: string | null;
+  failed_attempts?: number;
   created_at: string;
 }
 
@@ -352,12 +355,13 @@ export function createAttachment(
   path: string,
   textContent?: string,
   folderPath?: string,
-  isLibrary = true
+  isLibrary = true,
+  options: { isEncrypted?: boolean; encryptionPasswordHash?: string | null } = {},
 ): Attachment {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT INTO attachments (id, filename, mimetype, size, path, text_content, folder_path, is_library, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO attachments (id, filename, mimetype, size, path, text_content, folder_path, is_library, is_encrypted, encryption_password_hash, failed_attempts, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
   `);
   
   const id = crypto.randomUUID();
@@ -370,6 +374,8 @@ export function createAttachment(
     textContent || null,
     normalizeFolderPath(folderPath),
     isLibrary ? 1 : 0,
+    options.isEncrypted ? 1 : 0,
+    options.encryptionPasswordHash || null,
   );
   
   return getAttachmentById(id)!;
@@ -381,7 +387,9 @@ export function getAttachmentById(id: string): Attachment | null {
     SELECT 
       *,
       COALESCE(folder_path, '/') as folder_path,
-      COALESCE(is_library, 0) as is_library
+      COALESCE(is_library, 0) as is_library,
+      COALESCE(is_encrypted, 0) as is_encrypted,
+      COALESCE(failed_attempts, 0) as failed_attempts
     FROM attachments
     WHERE id = ?
   `);
@@ -397,7 +405,9 @@ export function getAttachmentsByIds(ids: string[]): Attachment[] {
     SELECT 
       *,
       COALESCE(folder_path, '/') as folder_path,
-      COALESCE(is_library, 0) as is_library
+      COALESCE(is_library, 0) as is_library,
+      COALESCE(is_encrypted, 0) as is_encrypted,
+      COALESCE(failed_attempts, 0) as failed_attempts
     FROM attachments
     WHERE id IN (${placeholders})
   `);
@@ -411,8 +421,8 @@ export function setAttachmentMessage(attachmentId: string, messageId: string): A
 
   if (attachment.is_library) {
     const stmt = db.prepare(`
-      INSERT INTO attachments (id, message_id, filename, mimetype, size, path, text_content, folder_path, is_library, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+      INSERT INTO attachments (id, message_id, filename, mimetype, size, path, text_content, folder_path, is_library, is_encrypted, encryption_password_hash, failed_attempts, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, datetime('now'))
     `);
     const cloneId = crypto.randomUUID();
     stmt.run(
@@ -424,6 +434,8 @@ export function setAttachmentMessage(attachmentId: string, messageId: string): A
       attachment.path,
       attachment.text_content || null,
       attachment.folder_path || '/',
+      attachment.is_encrypted ? 1 : 0,
+      attachment.encryption_password_hash || null,
     );
     return getAttachmentById(cloneId);
   }
@@ -439,7 +451,9 @@ export function getAttachmentsByMessageId(messageId: string): Attachment[] {
     SELECT 
       *,
       COALESCE(folder_path, '/') as folder_path,
-      COALESCE(is_library, 0) as is_library
+      COALESCE(is_library, 0) as is_library,
+      COALESCE(is_encrypted, 0) as is_encrypted,
+      COALESCE(failed_attempts, 0) as failed_attempts
     FROM attachments 
     WHERE message_id = ?
   `);
@@ -546,7 +560,9 @@ export function getAttachmentsInFolder(folderPath: string = '/', libraryOnly = t
       SELECT 
         *,
         COALESCE(folder_path, '/') as folder_path,
-        COALESCE(is_library, 0) as is_library
+        COALESCE(is_library, 0) as is_library,
+        COALESCE(is_encrypted, 0) as is_encrypted,
+        COALESCE(failed_attempts, 0) as failed_attempts
       FROM attachments 
       WHERE COALESCE(folder_path, '/') = ?
       ${libraryOnly ? 'AND COALESCE(is_library, 0) = 1' : ''}
@@ -582,6 +598,20 @@ export function deleteAttachment(id: string): boolean {
   }
 
   return true;
+}
+
+export function incrementAttachmentFailures(id: string): number | null {
+  const db = getDb();
+  const existing = getAttachmentById(id);
+  if (!existing) return null;
+  db.prepare('UPDATE attachments SET failed_attempts = COALESCE(failed_attempts, 0) + 1 WHERE id = ?').run(id);
+  const row = db.prepare('SELECT failed_attempts FROM attachments WHERE id = ?').get(id) as { failed_attempts: number } | undefined;
+  return row?.failed_attempts ?? null;
+}
+
+export function resetAttachmentFailures(id: string): void {
+  const db = getDb();
+  db.prepare('UPDATE attachments SET failed_attempts = 0 WHERE id = ?').run(id);
 }
 
 export function renameAttachmentFolder(path: string, newName: string): AttachmentFolder | null {
@@ -637,7 +667,7 @@ export function getAgentDefaultAttachments(agentId: string): Attachment[] {
   const db = getDb();
   const stmt = db.prepare(
     `
-    SELECT a.*, COALESCE(a.folder_path,'/') as folder_path, COALESCE(a.is_library,0) as is_library
+    SELECT a.*, COALESCE(a.folder_path,'/') as folder_path, COALESCE(a.is_library,0) as is_library, COALESCE(a.is_encrypted,0) as is_encrypted, COALESCE(a.failed_attempts,0) as failed_attempts
     FROM attachments a
     INNER JOIN agent_default_files f ON f.attachment_id = a.id
     WHERE f.agent_id = ?
