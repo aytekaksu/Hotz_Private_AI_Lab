@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { randomUUID } from 'crypto';
 
 export type CachedNotionPage = {
@@ -19,7 +20,7 @@ export class NotionPageCache {
   private readonly pageIndex = new Map<string, string>(); // pageId -> cacheKey
   private readonly cache = new Map<string, CachedNotionPage>();
 
-  constructor(baseDir = path.join(process.cwd(), 'tmp', 'notion-cache')) {
+  constructor(baseDir = path.join(process.env.TMPDIR || os.tmpdir(), 'notion-cache')) {
     this.sessionDir = path.join(baseDir, randomUUID());
   }
 
