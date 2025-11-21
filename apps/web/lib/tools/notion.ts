@@ -401,13 +401,6 @@ export async function getNotionPage(
   context?: NotionToolContext,
 ): Promise<any> {
   try {
-    console.info('[notion] getNotionPage start', {
-      pageId: params.page_id,
-      cacheKey: params.cache_key || null,
-      startLine: params.start_line ?? null,
-      endLine: params.end_line ?? null,
-    });
-
     const cache = context?.notionCache ?? new NotionPageCache();
     const normalizeNumber = (value: number | undefined) =>
       Number.isFinite(value as number) ? Math.max(1, Math.floor(value as number)) : undefined;
@@ -438,7 +431,6 @@ export async function getNotionPage(
       return {
         success: false,
         error: 'Failed to cache Notion page content.',
-        debug: { pageId: params.page_id, cacheKey: params.cache_key || null },
       };
     }
 
@@ -500,20 +492,10 @@ export async function getNotionPage(
         'Use cache_key with start_line and end_line to pull specific slices without reloading the entire page.',
     };
   } catch (error: any) {
-    const errObj: any = error ?? {};
-    const errorInfo = {
-      message: errObj?.message,
-      code: errObj?.code,
-      status: errObj?.status,
-      statusCode: errObj?.statusCode,
-      body: errObj?.body,
-      name: errObj?.name,
-    };
-    console.error('Error getting Notion page:', { errorInfo, pageId: params.page_id, cacheKey: params.cache_key || null });
+    console.error('Error getting Notion page:', error);
     return {
       success: false,
       error: error.message || 'Failed to get Notion page',
-      debug: errorInfo,
     };
   }
 }
