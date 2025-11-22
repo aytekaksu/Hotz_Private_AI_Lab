@@ -1,8 +1,8 @@
 {
-    email admin@assistant.aytekaksu.com
+    email ops@example.com
 }
 
-assistant.aytekaksu.com {
+beta2.assistant.aytekaksu.com {
     reverse_proxy web:3000
 
     header {
