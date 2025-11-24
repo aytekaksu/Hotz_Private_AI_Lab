@@ -191,7 +191,7 @@ const ChatScroller = forwardRef<HTMLDivElement, ChatScrollerProps>(
     <div
       {...props}
       ref={ref}
-      className={['px-4 pb-4 sm:pb-6 md:px-10 md:pb-6 overflow-x-hidden', className].filter(Boolean).join(' ')}
+      className={['w-full box-border px-4 pb-4 sm:pb-6 md:px-10 md:pb-6 overflow-x-hidden', className].filter(Boolean).join(' ')}
       style={{
         ...(style || {}),
         paddingBottom: paddingBottom ?? style?.paddingBottom,
@@ -1747,7 +1747,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden min-w-0">
           {messages.length === 0 ? (
             <div
               className="px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6"
@@ -1770,7 +1770,7 @@ export default function Home() {
           ) : (
             <Virtuoso
               key={currentConversationId ?? 'new'}
-              style={{ height: '100%' }}
+              style={{ height: '100%', width: '100%' }}
               data={messages}
               followOutput="auto"
               overscan={400}
