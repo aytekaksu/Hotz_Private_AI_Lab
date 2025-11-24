@@ -23,6 +23,8 @@ type IncomingMessage = {
   metadata?: Record<string, any>;
 };
 
+type UIPartsMessage = IncomingMessage & { parts: any[] };
+
 const extractTextFromParts = (parts: Array<any> | undefined): string => {
   if (!Array.isArray(parts)) return '';
   return parts
@@ -54,6 +56,50 @@ const extractMessageText = (message: IncomingMessage): string => {
     return extractTextFromParts(message.parts);
   }
   return '';
+};
+
+const TOOL_RESULT_MAX_TOKENS = Number(process.env.MAX_TOOL_OUTPUT_TOKENS || 5000);
+
+const approximateTokenCount = (value: unknown): number => {
+  if (value === undefined || value === null) return 0;
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return Math.ceil((text?.length || 0) / 4);
+  } catch {
+    return TOOL_RESULT_MAX_TOKENS + 1;
+  }
+};
+
+const isToolLikePart = (part: any): boolean => {
+  if (!part || typeof part !== 'object') return false;
+  const t = (part as any).type;
+  return typeof t === 'string' ? t.toLowerCase().includes('tool') : !!(part as any).toolName;
+};
+
+const omitOversizeToolOutput = (part: any) => {
+  if (!part || typeof part !== 'object') return part;
+  if (!isToolLikePart(part) || !('output' in part)) return part;
+  const estimatedTokens = approximateTokenCount((part as any).output);
+  if (estimatedTokens <= TOOL_RESULT_MAX_TOKENS) return part;
+  const cloned = { ...(part as any) };
+  delete (cloned as any).output;
+  return {
+    ...cloned,
+    output: `[omitted: tool output exceeded ${TOOL_RESULT_MAX_TOKENS} tokens. Re-run the tool if you need it again.]`,
+    output_omitted: true,
+    output_tokens_estimate: estimatedTokens,
+  };
+};
+
+const stripLargeToolOutputsFromMessage = (message: UIPartsMessage): UIPartsMessage => {
+  const next: UIPartsMessage = { ...message, parts: [] };
+  next.parts = Array.isArray(message.parts) ? message.parts.map((part) => omitOversizeToolOutput(part)) : [];
+  if (Array.isArray(message.content)) {
+    next.content = message.content.map((part) =>
+      typeof part === 'object' && part !== null ? omitOversizeToolOutput(part) : part,
+    );
+  }
+  return next;
 };
 
 // Keep original parts as-is to preserve tool call metadata for UI chips
@@ -123,7 +169,7 @@ export async function POST(req: Request) {
     const { messages, conversationId, userId, attachments, userTimezone, agentId } = await req.json();
     const headerTimezone = req.headers.get('X-User-Timezone');
     const incomingMessages: IncomingMessage[] = Array.isArray(messages) ? messages : [];
-    const normalizedMessages = incomingMessages.map(message => ({
+    const normalizedMessages: UIPartsMessage[] = incomingMessages.map(message => ({
       role: message.role,
       parts: toUIParts(message),
       metadata: message.metadata,
@@ -589,7 +635,8 @@ You also have access to the get_current_datetime tool if you need to get the cur
       systemPrompt += '\nUse these tools when appropriate to help the user.';
     }
 
-    const systemGuidelines = `Guidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.`;
+    const largeToolResultGuideline = `Tool results that exceed ${TOOL_RESULT_MAX_TOKENS} tokens are only kept in context until you finish the current response. If you need that information again later, call the tool again to refresh it, without telling the user that you are re-running it or that a previous output was omitted. Do not mention this retention behavior to the user.`;
+    const systemGuidelines = `Guidelines:\n- Always integrate information returned by get_current_datetime naturally in your reply; do not mention using a tool or imply you had to look it up.\n- You may call get_current_datetime multiple times in a conversation, but keep the interaction seamless for the user.\n- ${largeToolResultGuideline}`;
 
     // Merge agent prompts if agent is present
     let agentSlug: string | undefined;
@@ -624,15 +671,23 @@ You also have access to the get_current_datetime tool if you need to get the cur
     console.log('Available tools:', Object.keys(aiTools));
     console.log('Tools list:', availableToolsList.map(t => t.name));
 
+    const systemParts: Array<{ type: 'text'; text: string; cache_control?: { type: string } }> = [
+      { type: 'text', text: systemPrompt },
+    ];
+    if (includeGuidelines) {
+      systemParts.push({ type: 'text', text: systemGuidelines, cache_control: { type: 'ephemeral' } as any });
+    } else {
+      systemParts.push({ type: 'text', text: largeToolResultGuideline, cache_control: { type: 'ephemeral' } as any });
+    }
+
+    const messagesForContext: UIPartsMessage[] = normalizedMessages.map(stripLargeToolOutputsFromMessage);
+
     const uiMessagesForModel = [
       {
         role: 'system' as const,
-        parts: [
-          { type: 'text' as const, text: systemPrompt },
-          ...(includeGuidelines ? [{ type: 'text' as const, text: systemGuidelines, cache_control: { type: 'ephemeral' } as any }] : []),
-        ],
+        parts: systemParts,
       },
-      ...normalizedMessages.map(message => ({
+      ...messagesForContext.map(message => ({
         role: message.role,
         parts: message.parts,
         metadata: message.metadata,
@@ -692,7 +747,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
               .join('') ??
             '';
           // Persist only tool call events; UI renders them below the answer
-          const assistantToolCalls = toolEvents;
+          const assistantToolCalls = toolEvents.map((event) => omitOversizeToolOutput(event));
 
           createMessage(
             currentConversationId,

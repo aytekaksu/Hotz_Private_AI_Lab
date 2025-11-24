@@ -119,6 +119,7 @@ ensure_env_var NEXTAUTH_URL "$DOMAIN"
 ensure_env_var APP_PUBLIC_URL "$DOMAIN"
 ensure_env_var INTERNAL_DOMAIN "$DOMAIN_HOST"
 ensure_env_var ACME_EMAIL "$ACME_EMAIL_INPUT"
+ensure_env_var HEALTHCHECK_URL "${DOMAIN%/}/api/health"
 
 if ! grep -q '^APP_ENCRYPTION_KEY=' .env || [[ -z "$(grep -m1 '^APP_ENCRYPTION_KEY=' .env | cut -d= -f2-)" ]]; then
   GENERATED_KEY=$(openssl rand -hex 32)

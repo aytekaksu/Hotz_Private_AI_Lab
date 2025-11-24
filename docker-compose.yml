@@ -14,6 +14,8 @@ services:
       - ./data/caddy/config:/config
     environment:
       - INTERNAL_DOMAIN=${INTERNAL_DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     networks:
       - app-network
     depends_on:

@@ -1,8 +1,10 @@
+# This file is a placeholder and is overwritten by the bootstrap/provision scripts
+# with the domain you pass to install.sh.
 {
-    email ops@example.com
+    email you@example.com
 }
 
-beta2.assistant.aytekaksu.com {
+example.com {
     reverse_proxy web:3000
 
     header {

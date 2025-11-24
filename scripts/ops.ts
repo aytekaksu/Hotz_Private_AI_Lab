@@ -116,8 +116,17 @@ const parseDeployArgs = (args: string[]) => {
   return { clean, help: false };
 };
 
+const trimTrailingSlash = (input: string) => input.replace(/\/+$/, '');
+const resolveHealthCheckUrl = () => {
+  const envUrl = (Bun.env.HEALTHCHECK_URL || '').trim();
+  if (envUrl) return envUrl;
+  const base =
+    trimTrailingSlash(Bun.env.APP_PUBLIC_URL || Bun.env.NEXTAUTH_URL || '') || 'http://localhost:3000';
+  return `${trimTrailingSlash(base)}/api/health`;
+};
+
 const healthCheck = async (logger: Logger) => {
-  const url = Bun.env.HEALTHCHECK_URL || 'https://assistant.aytekaksu.com/api/health';
+  const url = resolveHealthCheckUrl();
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) {

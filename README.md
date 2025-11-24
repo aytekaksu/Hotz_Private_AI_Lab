@@ -3,7 +3,7 @@ AI Assistant (Next.js + AI SDK v5)
 
 An extensible personal AI assistant built with Next.js 14, Vercel AI SDK v5, and OpenRouter. It supports multi‑step tool calling (Google Calendar, Google Tasks, Notion), image understanding, seamless current‑time awareness, and streaming chat with a Stop button.
 
-Live: https://assistant.aytekaksu.com
+Live: https://<your-domain>
 
 Features
 - Streaming chat UI (Next.js App Router) with a Stop button

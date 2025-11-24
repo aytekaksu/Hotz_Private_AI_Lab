@@ -149,7 +149,12 @@ run_db_migrations() {
 }
 
 health_check() {
-  curl -fsS https://assistant.aytekaksu.com/api/health || true
+  local base="${HEALTHCHECK_URL:-${APP_PUBLIC_URL:-${NEXTAUTH_URL:-}}}"
+  if [[ -z "$base" ]]; then
+    base="http://localhost:3000"
+  fi
+  base="${base%/}"
+  curl -fsS "${base}/api/health" || true
 }
 
 run_step "Ensuring workspace dependencies" ensure_dependencies
