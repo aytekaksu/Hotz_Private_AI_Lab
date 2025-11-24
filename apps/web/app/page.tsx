@@ -1487,7 +1487,7 @@ export default function Home() {
             </div>
           </div>
         )}
-        {isMobile && <div className="h-48 w-full" aria-hidden="true" />}
+        <div className={isMobile ? 'h-48 w-full' : 'h-12 w-full'} aria-hidden="true" />
       </>
     );
   }, [isLoading, isMobile]);
