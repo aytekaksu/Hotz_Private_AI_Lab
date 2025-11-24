@@ -13,6 +13,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { uploadWithProgress } from '@/lib/client/upload';
 // Theme toggle removed — app is permanently dark
 
 const MASK_PREFIX = '••••••••••';
@@ -292,6 +293,7 @@ export default function SettingsPage() {
   const [googleClientProjectId, setGoogleClientProjectId] = useState<string | null>(null);
   const [googleClientUpdatedAt, setGoogleClientUpdatedAt] = useState<string | null>(null);
   const [isUploadingGoogleClient, setIsUploadingGoogleClient] = useState(false);
+  const [googleUploadProgress, setGoogleUploadProgress] = useState<number | null>(null);
   const [isRemovingGoogleClient, setIsRemovingGoogleClient] = useState(false);
   const [googleClientFeedback, setGoogleClientFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -609,16 +611,17 @@ export default function SettingsPage() {
   const uploadGoogleClientFile = async (file: File) => {
     setGoogleClientFeedback(null);
     setIsUploadingGoogleClient(true);
+    setGoogleUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await fetch('/api/settings/google-credentials', {
-        method: 'POST',
-        body: formData,
-      });
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(result?.error || 'Failed to save Google credentials');
+      const result = await uploadWithProgress<{ error?: string }>(
+        '/api/settings/google-credentials',
+        formData,
+        { onProgress: (percent) => setGoogleUploadProgress(percent) },
+      );
+      if ((result as any)?.error) {
+        throw new Error((result as any).error || 'Failed to save Google credentials');
       }
       setGoogleClientFeedback({ type: 'success', message: 'Google OAuth client saved ✓' });
       setTimeout(() => setGoogleClientFeedback(null), 4000);
@@ -631,6 +634,7 @@ export default function SettingsPage() {
       });
     } finally {
       setIsUploadingGoogleClient(false);
+      setGoogleUploadProgress(null);
     }
   };
 
@@ -897,6 +901,17 @@ export default function SettingsPage() {
                       </svg>
                       {isUploadingGoogleClient ? 'Uploading…' : 'Upload client_secret.json'}
                     </label>
+                    {isUploadingGoogleClient && (
+                      <div className="flex items-center gap-2 text-[11px] text-muted">
+                        <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-border/60">
+                          <div
+                            className="h-full bg-accent transition-[width]"
+                            style={{ width: `${Math.max(googleUploadProgress ?? 10, 5)}%` }}
+                          />
+                        </div>
+                        <span>{googleUploadProgress !== null ? `${googleUploadProgress}%` : 'Uploading…'}</span>
+                      </div>
+                    )}
                     {googleClientConfigured && !googleClientReadOnly && (
                       <button
                         type="button"

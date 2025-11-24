@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { uploadWithProgress } from '@/lib/client/upload';
 
 export type ManagedFile = {
   id: string;
@@ -69,6 +70,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
   const [files, setFiles] = useState<ManagedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const deletingFolderRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
     const formData = new FormData();
     Array.from(fileList).forEach((file) => {
@@ -111,10 +114,15 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
     formData.append('isLibrary', 'true');
 
     try {
-      const res = await fetch('/api/uploads', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Failed to upload files');
+      const data = await uploadWithProgress<{ error?: string } | { attachments?: ManagedFile[] }>(
+        '/api/uploads',
+        formData,
+        {
+          onProgress: (percent) => setUploadProgress(percent),
+        },
+      );
+      if ((data as any)?.error) {
+        throw new Error((data as any).error || 'Failed to upload files');
       }
       await loadFolder(folderPath);
       onMutate?.();
@@ -123,6 +131,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
       setError(err instanceof Error ? err.message : 'Failed to upload files');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
       if (uploadInputRef.current) {
         uploadInputRef.current.value = '';
       }
@@ -133,6 +142,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
     if (!fileList || fileList.length === 0) return;
     if (fileList.length > 1) {
       setError('Upload encrypted files one at a time so each can have its own password.');
+      setUploadProgress(null);
       if (encryptedUploadInputRef.current) encryptedUploadInputRef.current.value = '';
       return;
     }
@@ -151,6 +161,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
       alert('Passwords did not match. Please enter the same password twice.');
     }
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
     const formData = new FormData();
     Array.from(fileList).forEach((file) => {
@@ -162,10 +173,15 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
     formData.append('encryptionPassword', password);
 
     try {
-      const res = await fetch('/api/uploads', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Failed to upload encrypted file');
+      const data = await uploadWithProgress<{ error?: string } | { attachments?: ManagedFile[] }>(
+        '/api/uploads',
+        formData,
+        {
+          onProgress: (percent) => setUploadProgress(percent),
+        },
+      );
+      if ((data as any)?.error) {
+        throw new Error((data as any).error || 'Failed to upload encrypted file');
       }
       await loadFolder(folderPath);
       onMutate?.();
@@ -174,6 +190,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
       setError(err instanceof Error ? err.message : 'Failed to upload encrypted file');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
       if (encryptedUploadInputRef.current) {
         encryptedUploadInputRef.current.value = '';
       }
@@ -414,6 +431,17 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
           </label>
         </div>
       </div>
+      {uploading && (
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-muted">
+          <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-border/60">
+            <div
+              className="h-full bg-accent transition-[width]"
+              style={{ width: `${Math.max(uploadProgress ?? 10, 5)}%` }}
+            />
+          </div>
+          <span>{uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Uploading…'}</span>
+        </div>
+      )}
 
       {error && <div className="mt-2 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-100">{error}</div>}
 

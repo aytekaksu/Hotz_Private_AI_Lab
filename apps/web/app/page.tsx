@@ -23,6 +23,7 @@ import { FileManager, type ManagedFile } from '@/components/file-manager';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Virtuoso } from 'react-virtuoso';
+import { uploadWithProgress } from '@/lib/client/upload';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;
 
@@ -295,6 +296,7 @@ export default function Home() {
   type ChatAttachment = ManagedFile & { addToLibrary?: boolean; encryptionPassword?: string };
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [availableTools, setAvailableTools] = useState<ToolDefinition[]>([]);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isFileManagerOpen, setIsFileManagerOpen] = useState(false);
@@ -1052,6 +1054,7 @@ export default function Home() {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
+    setUploadProgress(0);
     const formData = new FormData();
     Array.from(files).forEach((file) => {
       formData.append('files', file);
@@ -1060,16 +1063,18 @@ export default function Home() {
     formData.append('folderPath', '/');
 
     try {
-      const response = await fetch('/api/uploads', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
+      const data = await uploadWithProgress<{ error?: string; attachments?: ManagedFile[] }>(
+        '/api/uploads',
+        formData,
+        {
+          onProgress: (percent) => setUploadProgress(percent),
+        },
+      );
 
-      if (data.error) {
+      if (data?.error) {
         alert(data.error);
       } else {
-        const uploaded = Array.isArray(data.attachments) ? (data.attachments as ManagedFile[]) : [];
+        const uploaded = Array.isArray(data?.attachments) ? (data.attachments as ManagedFile[]) : [];
         const normalized = uploaded.map((att) => ({ ...att, addToLibrary: true })) as ChatAttachment[];
         setAttachments((prev) => [...prev, ...normalized]);
       }
@@ -1078,6 +1083,7 @@ export default function Home() {
       alert('Failed to upload files');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
 
     if (fileInputRef.current) {
@@ -2004,7 +2010,17 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-2 sm:ml-0 sm:gap-3">
-                  {isUploading && <span className="text-xs text-muted">Uploading…</span>}
+                  {isUploading && (
+                    <div className="flex items-center gap-2 text-xs text-muted">
+                      <div className="relative h-1.5 w-24 overflow-hidden rounded-full bg-border/70">
+                        <div
+                          className="h-full bg-accent transition-[width]"
+                          style={{ width: `${Math.max(uploadProgress ?? 10, 5)}%` }}
+                        />
+                      </div>
+                      <span>{uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Uploading…'}</span>
+                    </div>
+                  )}
                   {error && !isLoading && (
                     <span className="text-xs text-foreground">{error.message ?? 'An error occurred.'}</span>
                   )}
