@@ -191,7 +191,7 @@ const ChatScroller = forwardRef<HTMLDivElement, ChatScrollerProps>(
     <div
       {...props}
       ref={ref}
-      className={['w-full box-border px-4 pb-4 sm:pb-6 md:px-10 md:pb-6 overflow-x-hidden', className].filter(Boolean).join(' ')}
+      className={['w-full box-border pb-4 sm:pb-6 md:pb-6 overflow-x-hidden', className].filter(Boolean).join(' ')}
       style={{
         ...(style || {}),
         paddingBottom: paddingBottom ?? style?.paddingBottom,
@@ -1467,40 +1467,46 @@ export default function Home() {
     </aside>
   );
 
-  const scrollerPaddingBottom = isMobile ? '12rem' : undefined;
-  const scrollerPaddingTop = isMobile ? '88px' : '64px';
+  const VirtuosoHeader = useCallback(() => {
+    return <div className={isMobile ? 'h-8' : 'h-16'} />;
+  }, [isMobile]);
 
   const VirtuosoFooter = useCallback(() => {
-    if (!isLoading) return null;
     return (
-      <div className="mx-auto flex w-full max-w-5xl justify-center pb-6">
-        <div className="w-full max-w-[90%] md:max-w-[80ch]">
-          <div className="py-2">
-            <span className="inline-flex items-center gap-1 text-xs text-muted" aria-live="polite" aria-label="Waiting for response">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-            </span>
+      <>
+        {isLoading && (
+          <div className="mx-auto flex w-full max-w-5xl justify-center pb-6">
+            <div className="w-full max-w-[90%] md:max-w-[80ch]">
+              <div className="py-2">
+                <span className="inline-flex items-center gap-1 text-xs text-muted" aria-live="polite" aria-label="Waiting for response">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+        {isMobile && <div className="h-48 w-full" aria-hidden="true" />}
+      </>
     );
-  }, [isLoading]);
+  }, [isLoading, isMobile]);
 
   const VirtuosoScroller = useMemo(() => {
     const Component = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>((props, ref) => (
-      <ChatScroller {...props} ref={ref} paddingBottom={scrollerPaddingBottom} paddingTop={scrollerPaddingTop} />
+      <ChatScroller {...props} ref={ref} />
     ));
     Component.displayName = 'VirtuosoScroller';
     return Component;
-  }, [scrollerPaddingBottom, scrollerPaddingTop]);
+  }, []);
 
   const virtuosoComponents = useMemo(
     () => ({
       Scroller: VirtuosoScroller,
       Footer: VirtuosoFooter,
+      Header: VirtuosoHeader,
     }),
-    [VirtuosoScroller, VirtuosoFooter],
+    [VirtuosoScroller, VirtuosoFooter, VirtuosoHeader],
   );
 
   if (!userId) {
@@ -1704,7 +1710,7 @@ export default function Home() {
       )}
 
       <div className="flex h-full flex-1 min-w-0 flex-col md:overflow-hidden">
-        <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/80 px-4 py-2 text-sm backdrop-blur-md md:hidden">
+        <header className="flex-none z-30 flex items-center justify-between gap-3 border-b border-border bg-background/80 px-4 py-2 text-sm backdrop-blur-md md:hidden">
           <div className="flex flex-1 items-center gap-3 overflow-hidden">
             <button
               type="button"
@@ -1789,7 +1795,7 @@ export default function Home() {
                 return (
                   <div
                     key={message.id ?? idx}
-                    className={`mx-auto mb-6 flex w-full max-w-5xl ${isUser ? 'justify-end' : 'justify-center'}`}
+                    className={`mx-auto mb-6 flex w-full max-w-5xl px-4 md:px-10 ${isUser ? 'justify-end' : 'justify-start'}`}
                   >
                     {isUser ? (
                       <div className="max-w-[90%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur sm:max-w-[80%]">
@@ -1823,7 +1829,7 @@ export default function Home() {
                         {renderToolChips(message)}
                       </div>
                     ) : (
-                      <div className="w-full max-w-[90%] md:max-w-[80ch]">
+                      <div className="w-full max-w-full md:max-w-[80ch]">
                         <div className="text-sm leading-relaxed text-foreground">
                           <MarkdownMessage text={text} />
                         </div>
