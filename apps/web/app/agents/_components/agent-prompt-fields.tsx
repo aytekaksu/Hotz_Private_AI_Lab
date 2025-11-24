@@ -65,10 +65,18 @@ export function AgentPromptFields({
           <p className="text-xs text-muted">Select a custom instructions document from the file manager (one at a time).</p>
           <FileManager
             selectedIds={upload ? [upload.id] : []}
-            onSelect={(file: ManagedFile) => {
+            onSelect={async (file: ManagedFile) => {
               setUpload({ id: file.id, name: file.filename });
-              if (typeof file.text_content === 'string' && file.text_content.trim().length > 0) {
-                setForm((prev) => ({ ...prev, extraPrompt: file.text_content || prev.extraPrompt }));
+              try {
+                const res = await fetch(`/api/files/${file.id}?includeText=true`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const text: string | undefined = data?.attachment?.text_content;
+                if (typeof text === 'string' && text.trim().length > 0) {
+                  setForm((prev) => ({ ...prev, extraPrompt: text || prev.extraPrompt }));
+                }
+              } catch (err) {
+                console.error('Failed to fetch attachment text content', err);
               }
             }}
             onDeselect={() => setUpload(null)}

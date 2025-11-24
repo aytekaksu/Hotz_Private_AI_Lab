@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getConversationById, getMessagesByConversationId, deleteConversation, getAttachmentsByMessageId } from '@/lib/db';
+import { sanitizeAttachments } from '@/lib/files/sanitize-attachment';
 
 export const runtime = 'nodejs';
-
-const sanitizeAttachment = (att: any) => {
-  const { encryption_password_hash, failed_attempts, ...rest } = att || {};
-  return rest;
-};
 
 export async function GET(
   req: NextRequest,
@@ -39,7 +35,7 @@ export async function GET(
           parts: partsOut,
           id: msg.id,
           created_at: msg.created_at,
-          attachments: getAttachmentsByMessageId(msg.id).map(sanitizeAttachment),
+          attachments: sanitizeAttachments(getAttachmentsByMessageId(msg.id)),
         };
       })
     });

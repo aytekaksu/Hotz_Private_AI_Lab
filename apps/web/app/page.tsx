@@ -1122,6 +1122,8 @@ export default function Home() {
           setAttachments((prev) => prev.map((att) => (att.id === tempId ? normalized : att)));
         } catch (err) {
           console.error('Failed to upload files:', err);
+          const message = err instanceof Error ? err.message : 'Failed to upload files';
+          alert(message);
           setAttachments((prev) =>
             prev.map((att) =>
               att.id === tempId ? { ...att, uploadState: 'error', uploadProgress: null } : att,

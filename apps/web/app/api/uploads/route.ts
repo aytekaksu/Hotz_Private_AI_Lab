@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createAttachment, getAttachmentFolderByPath, normalizeFolderPath } from '@/lib/db';
+import { sanitizeAttachments } from '@/lib/files/sanitize-attachment';
+import { countTokens, formatTokenLimitError, MAX_ATTACHMENT_TOKENS } from '@/lib/files/tokenizer';
 import { nanoid } from 'nanoid';
 import { hashPassword } from '@/lib/encryption';
 import { createEncryptedZip } from '@/lib/files/encrypted-zip';
@@ -159,6 +161,14 @@ const classifyUpload = (file: File) => {
   return { allowed, resolvedType };
 };
 
+const enforceTokenLimit = (text: string | null | undefined, file: File) => {
+  if (!text) return;
+  const tokens = countTokens(text);
+  if (tokens > MAX_ATTACHMENT_TOKENS) {
+    throw new Error(formatTokenLimitError(file.name, tokens, MAX_ATTACHMENT_TOKENS));
+  }
+};
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -215,6 +225,18 @@ export async function POST(req: NextRequest) {
     for (const { file, resolvedType } of uploads) {
       if (isEncryptedUpload) {
         const bytes = new Uint8Array(await Bun.readableStreamToArrayBuffer(file.stream()));
+
+        // Token guard for encrypted uploads using extracted text (same content that would feed the LLM)
+        try {
+          const extractedText = shouldStreamTextContent(resolvedType)
+            ? new TextDecoder().decode(bytes)
+            : await extractTextFromBytes(bytes, resolvedType);
+          enforceTokenLimit(extractedText?.trim(), file);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'File is too large to upload';
+          return Response.json({ error: message }, { status: 400 });
+        }
+
         const encryptedBytes = await createEncryptedZip(bytes, file.name, encryptionPassword);
         const filename = `${nanoid()}-${Date.now()}.zip`;
         const filepath = Bun.fileURLToPath(new URL(`./${filename}`, uploadDirUrl));
@@ -257,6 +279,14 @@ export async function POST(req: NextRequest) {
         ? await textCapturePromise
         : await extractTextFromBytes(bytes, resolvedType);
       const normalizedText = extractedText?.trim();
+
+      // Token guard based on the extracted text that will be used by the model
+      try {
+        enforceTokenLimit(normalizedText, file);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'File is too large to upload';
+        return Response.json({ error: message }, { status: 400 });
+      }
       
       // Generate unique filename
       const ext = getExtension(file.name);
@@ -280,10 +310,7 @@ export async function POST(req: NextRequest) {
       attachments.push(attachment);
     }
     
-    const sanitized = attachments.map((att) => {
-      const { encryption_password_hash, failed_attempts, ...rest } = att as any;
-      return rest;
-    });
+    const sanitized = sanitizeAttachments(attachments);
     
     return Response.json({ 
       success: true,

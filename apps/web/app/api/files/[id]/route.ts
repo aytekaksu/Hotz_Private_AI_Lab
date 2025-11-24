@@ -1,8 +1,33 @@
 import { NextRequest } from 'next/server';
-import { deleteAttachment, renameLibraryAttachment } from '@/lib/db';
+import { deleteAttachment, renameLibraryAttachment, getAttachmentById } from '@/lib/db';
+import { sanitizeAttachment } from '@/lib/files/sanitize-attachment';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const parseIncludeText = (value?: string | null) => {
+  if (!value) return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+};
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const attachment = getAttachmentById(params.id);
+    if (!attachment) {
+      return Response.json({ error: 'File not found' }, { status: 404 });
+    }
+    const includeText = parseIncludeText(req.nextUrl.searchParams.get('includeText'));
+    const sanitized = sanitizeAttachment(attachment, { includeTextContent: includeText });
+    return Response.json({ attachment: sanitized });
+  } catch (error) {
+    console.error('Failed to fetch file:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch file';
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
 
 export async function DELETE(
   req: NextRequest,

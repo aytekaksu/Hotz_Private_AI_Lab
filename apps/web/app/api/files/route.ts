@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getAttachmentFolders, getAttachmentsInFolder, normalizeFolderPath } from '@/lib/db';
+import { sanitizeAttachments } from '@/lib/files/sanitize-attachment';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,10 +9,7 @@ export async function GET(req: NextRequest) {
   try {
     const folderPath = normalizeFolderPath(req.nextUrl.searchParams.get('folderPath') || '/');
     const folders = getAttachmentFolders(folderPath);
-    const files = getAttachmentsInFolder(folderPath, true).map((file) => {
-      const { encryption_password_hash, failed_attempts, ...rest } = file as any;
-      return rest;
-    });
+    const files = sanitizeAttachments(getAttachmentsInFolder(folderPath, true));
 
     return Response.json({
       folderPath,
