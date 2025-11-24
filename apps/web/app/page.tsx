@@ -8,8 +8,11 @@ import {
   useRef,
   useMemo,
   useCallback,
+  memo,
+  forwardRef,
   type ChangeEvent,
   type FormEvent,
+  type HTMLAttributes,
 } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -19,6 +22,7 @@ import type { ToolDefinition } from '@/components/tool-dialog';
 import { FileManager, type ManagedFile } from '@/components/file-manager';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Virtuoso } from 'react-virtuoso';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;
 
@@ -78,6 +82,113 @@ const formatRelativeDate = (date: Date) => {
     timeZone: userTimeZone,
   });
 };
+
+const stripAttachmentAppendix = (message: any, text: string) => {
+  if (typeof text !== 'string' || text.length === 0) return '';
+
+  const attachmentsForMessage = Array.isArray(message?.metadata?.attachments)
+    ? message.metadata.attachments
+    : Array.isArray((message as any)?.attachments)
+      ? (message as any).attachments
+      : [];
+
+  const markerIndex = text.indexOf('[Attachments]');
+  if (markerIndex === -1) return text;
+
+  // Remove everything from the marker onward; keep leading prompt intact
+  const trimmed = text.slice(0, markerIndex).trimEnd();
+
+  // If we had attachments or the marker existed, prefer hiding the appendix even if empty
+  if (attachmentsForMessage.length > 0) return trimmed;
+  // No attachment metadata? still hide the appendix if we found the marker
+  return trimmed;
+};
+
+const renderMessageText = (message: any) => {
+  // Prefer parts if present (streaming often provides parts)
+  const pullTextFromArray = (arr: any[]) =>
+    arr
+      .map((part: any) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object') {
+          if (typeof part.text === 'string') return part.text;
+          if (typeof part.content === 'string') return part.content;
+          if (typeof part.result === 'string') return part.result;
+          if (part.type === 'text' && typeof part.text === 'string') return part.text;
+        }
+        return '';
+      })
+      .join('')
+      .trim();
+
+  if (Array.isArray(message.parts)) {
+    const combined = pullTextFromArray(message.parts);
+    if (combined.length > 0) return stripAttachmentAppendix(message, combined);
+  }
+  if (typeof message.content === 'string') return stripAttachmentAppendix(message, message.content);
+  if (Array.isArray(message.content)) {
+    const combined = pullTextFromArray(message.content);
+    if (combined.length > 0) return stripAttachmentAppendix(message, combined);
+  }
+  if (typeof message.text === 'string') return stripAttachmentAppendix(message, message.text);
+  return '';
+};
+
+const MarkdownMessage = memo(({ text }: { text: string }) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={{
+      h1: (props) => <h1 className="mt-4 mb-2 text-2xl font-bold" {...props} />,
+      h2: (props) => <h2 className="mt-4 mb-2 text-xl font-semibold" {...props} />,
+      h3: (props) => <h3 className="mt-3 mb-1.5 text-lg font-semibold" {...props} />,
+      p: (props) => <p className="mb-3 whitespace-pre-wrap" {...props} />,
+      ul: (props) => <ul className="mb-3 list-disc pl-5 space-y-1" {...props} />,
+      ol: (props) => <ol className="mb-3 list-decimal pl-5 space-y-1" {...props} />,
+      li: (props) => <li className="leading-relaxed" {...props} />,
+      blockquote: (props) => (
+        <blockquote className="mb-3 border-l-2 border-border/60 pl-3 italic text-foreground/90" {...props} />
+      ),
+      a: (props) => <a className="text-accent underline hover:opacity-90" target="_blank" rel="noreferrer" {...props} />,
+      code({ className, children, ...props }) {
+        const isBlock = typeof className === 'string' && className.includes('language-');
+        if (!isBlock) {
+          return (
+            <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...props}>
+              {children}
+            </code>
+          );
+        }
+        return (
+          <pre className="mb-3 overflow-x-auto rounded-xl border border-border bg-surface p-3 text-[0.9em]">
+            <code className={className} {...props}>
+              {children}
+            </code>
+          </pre>
+        );
+      },
+      hr: (props) => <hr className="my-4 border-border/60" {...props} />,
+    }}
+  >
+    {text}
+  </ReactMarkdown>
+));
+
+MarkdownMessage.displayName = 'MarkdownMessage';
+
+type ChatScrollerProps = HTMLAttributes<HTMLDivElement> & { paddingBottom?: string };
+
+const ChatScroller = forwardRef<HTMLDivElement, ChatScrollerProps>(
+  ({ className, style, paddingBottom, ...props }, ref) => (
+    <div
+      {...props}
+      ref={ref}
+      className={['px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6', className].filter(Boolean).join(' ')}
+      style={{ ...(style || {}), paddingBottom: paddingBottom ?? style?.paddingBottom }}
+    />
+  ),
+);
+
+ChatScroller.displayName = 'ChatScroller';
 
 function ToolsList({
   availableTools,
@@ -196,7 +307,6 @@ export default function Home() {
   const pendingToolInvocationsRef = useRef<Array<{ id: string; toolName: string; state: string; args?: any }>>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesViewportRef = useRef<HTMLElement | null>(null);
   const currentConversationIdRef = useRef<string | null>(null);
   const currentAgentSlugRef = useRef<string | null>(null);
   const rootForwardedRef = useRef<boolean>(false);
@@ -994,15 +1104,6 @@ export default function Home() {
     });
   };
 
-  useEffect(() => {
-    const viewport = messagesViewportRef.current;
-    if (!viewport) return;
-    viewport.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: 'smooth',
-    });
-  }, [messages]);
-
   // Attach any queued tool invocations to the latest assistant message once it exists
   useEffect(() => {
     if (pendingToolInvocationsRef.current.length === 0) return;
@@ -1353,6 +1454,41 @@ export default function Home() {
     </aside>
   );
 
+  const scrollerPaddingBottom = isMobile ? '12rem' : undefined;
+
+  const VirtuosoFooter = useCallback(() => {
+    if (!isLoading) return null;
+    return (
+      <div className="mx-auto flex w-full max-w-5xl justify-center pb-6">
+        <div className="w-full max-w-[90%] md:max-w-[80ch]">
+          <div className="py-2">
+            <span className="inline-flex items-center gap-1 text-xs text-muted" aria-live="polite" aria-label="Waiting for response">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }, [isLoading]);
+
+  const VirtuosoScroller = useMemo(() => {
+    const Component = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>((props, ref) => (
+      <ChatScroller {...props} ref={ref} paddingBottom={scrollerPaddingBottom} />
+    ));
+    Component.displayName = 'VirtuosoScroller';
+    return Component;
+  }, [scrollerPaddingBottom]);
+
+  const virtuosoComponents = useMemo(
+    () => ({
+      Scroller: VirtuosoScroller,
+      Footer: VirtuosoFooter,
+    }),
+    [VirtuosoScroller, VirtuosoFooter],
+  );
+
   if (!userId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted">
@@ -1360,96 +1496,6 @@ export default function Home() {
       </div>
     );
   }
-
-  const stripAttachmentAppendix = (message: any, text: string) => {
-    if (typeof text !== 'string' || text.length === 0) return '';
-
-    const attachmentsForMessage = Array.isArray(message?.metadata?.attachments)
-      ? message.metadata.attachments
-      : Array.isArray((message as any)?.attachments)
-        ? (message as any).attachments
-        : [];
-
-    const markerIndex = text.indexOf('[Attachments]');
-    if (markerIndex === -1) return text;
-
-    // Remove everything from the marker onward; keep leading prompt intact
-    const trimmed = text.slice(0, markerIndex).trimEnd();
-
-    // If we had attachments or the marker existed, prefer hiding the appendix even if empty
-    if (attachmentsForMessage.length > 0) return trimmed;
-    // No attachment metadata? still hide the appendix if we found the marker
-    return trimmed;
-  };
-
-  const renderMessageText = (message: any) => {
-    // Prefer parts if present (streaming often provides parts)
-    const pullTextFromArray = (arr: any[]) =>
-      arr
-        .map((part: any) => {
-          if (typeof part === 'string') return part;
-          if (part && typeof part === 'object') {
-            if (typeof part.text === 'string') return part.text;
-            if (typeof part.content === 'string') return part.content;
-            if (typeof part.result === 'string') return part.result;
-            if (part.type === 'text' && typeof part.text === 'string') return part.text;
-          }
-          return '';
-        })
-        .join('')
-        .trim();
-
-    if (Array.isArray(message.parts)) {
-      const combined = pullTextFromArray(message.parts);
-      if (combined.length > 0) return stripAttachmentAppendix(message, combined);
-    }
-    if (typeof message.content === 'string') return stripAttachmentAppendix(message, message.content);
-    if (Array.isArray(message.content)) {
-      const combined = pullTextFromArray(message.content);
-      if (combined.length > 0) return stripAttachmentAppendix(message, combined);
-    }
-    if (typeof message.text === 'string') return stripAttachmentAppendix(message, message.text);
-    return '';
-  };
-
-  const MarkdownMessage = ({ text }: { text: string }) => (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        h1: (props) => <h1 className="mt-4 mb-2 text-2xl font-bold" {...props} />,
-        h2: (props) => <h2 className="mt-4 mb-2 text-xl font-semibold" {...props} />,
-        h3: (props) => <h3 className="mt-3 mb-1.5 text-lg font-semibold" {...props} />,
-        p: (props) => <p className="mb-3 whitespace-pre-wrap" {...props} />,
-        ul: (props) => <ul className="mb-3 list-disc pl-5 space-y-1" {...props} />,
-        ol: (props) => <ol className="mb-3 list-decimal pl-5 space-y-1" {...props} />,
-        li: (props) => <li className="leading-relaxed" {...props} />,
-        blockquote: (props) => (
-          <blockquote className="mb-3 border-l-2 border-border/60 pl-3 italic text-foreground/90" {...props} />
-        ),
-        a: (props) => <a className="text-accent underline hover:opacity-90" target="_blank" rel="noreferrer" {...props} />,
-        code({ className, children, ...props }) {
-          const isBlock = typeof className === 'string' && className.includes('language-');
-          if (!isBlock) {
-            return (
-              <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...props}>
-                {children}
-              </code>
-            );
-          }
-          return (
-            <pre className="mb-3 overflow-x-auto rounded-xl border border-border bg-surface p-3 text-[0.9em]">
-              <code className={className} {...props}>
-                {children}
-              </code>
-            </pre>
-          );
-        },
-        hr: (props) => <hr className="my-4 border-border/60" {...props} />,
-      }}
-    >
-      {text}
-    </ReactMarkdown>
-  );
 
   const triggerDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -1576,11 +1622,9 @@ export default function Home() {
             <span className="truncate max-w-[140px]">{prettyToolName(c.name)}</span>
           </span>
         ))}
-      </div>
+  </div>
     );
   };
-
-
 
   return (
     <div className="relative flex h-[100dvh] overflow-hidden bg-background text-foreground">
@@ -1689,121 +1733,120 @@ export default function Home() {
           </div>
         </header>
 
-        <main
-          ref={messagesViewportRef}
-          className="flex-1 overflow-y-auto px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6"
-          style={{ paddingBottom: isMobile ? '12rem' : undefined }}
-        >
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-            {messages.length === 0 ? (
-              <div className="mt-10 rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center shadow-sm">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-border bg-surface text-accent">
-                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-6 w-6">
-                    <path d="M5 8.333 10 3.333l5 5M5 11.667 10 16.667l5-5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-                <h3 className="mt-6 text-xl font-semibold">Start a conversation</h3>
-                <p className="mt-3 text-sm text-muted">
-                  Ask about your schedule, manage tasks, or connect your Notion workspace. Your full prompt stays visible below.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {messages.map((message: any, idx: number) => {
-                  const isUser = message.role === 'user';
-                  const text = renderMessageText(message);
-                  const attachmentsForMessage = Array.isArray(message.metadata?.attachments)
-                    ? message.metadata.attachments
-                    : Array.isArray((message as any).attachments)
-                      ? (message as any).attachments
-                      : [];
-
-                  return (
-                    <div key={message.id ?? idx} className={`flex w-full ${isUser ? 'justify-end' : 'justify-center'}`}>
-                      {isUser ? (
-                        <div className="max-w-[90%] sm:max-w-[80%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur">
-                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
-                          {attachmentsForMessage.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {attachmentsForMessage.map((attachment: any) => (
-                                <a
-                                  key={attachment.id}
-                                  href={`/api/attachments/${attachment.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    void handleOpenAttachment(attachment);
-                                  }}
-                                >
-                                  {attachment.is_encrypted ? (
-                                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
-                                      <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  ) : (
-                                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-                                  )}
-                                  {attachment.filename}
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                          {renderToolChips(message)}
-                        </div>
-                      ) : (
-                        <div className="w-full max-w-[90%] md:max-w-[80ch]">
-                          <div className="text-sm leading-relaxed text-foreground">
-                            <MarkdownMessage text={text} />
-                          </div>
-                          {attachmentsForMessage.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {attachmentsForMessage.map((attachment: any) => (
-                                <a
-                                  key={attachment.id}
-                                  href={`/api/attachments/${attachment.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    void handleOpenAttachment(attachment);
-                                  }}
-                                >
-                                  {attachment.is_encrypted ? (
-                                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
-                                      <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  ) : (
-                                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-                                  )}
-                                  {attachment.filename}
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                          {renderToolChips(message)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {isLoading && (
-                  <div className="flex w-full justify-center">
-                    <div className="w-full max-w-[90%] md:max-w-[80ch]">
-                      <div className="py-2">
-                        <span className="inline-flex items-center gap-1 text-xs text-muted" aria-live="polite" aria-label="Waiting for response">
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                        </span>
-                      </div>
-                    </div>
+        <main className="flex-1 overflow-hidden">
+          {messages.length === 0 ? (
+            <div
+              className="px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6"
+              style={{ paddingBottom: isMobile ? '12rem' : undefined }}
+            >
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+                <div className="mt-10 rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center shadow-sm">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-border bg-surface text-accent">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-6 w-6">
+                      <path d="M5 8.333 10 3.333l5 5M5 11.667 10 16.667l5-5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
-                )}
+                  <h3 className="mt-6 text-xl font-semibold">Start a conversation</h3>
+                  <p className="mt-3 text-sm text-muted">
+                    Ask about your schedule, manage tasks, or connect your Notion workspace. Your full prompt stays visible below.
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <Virtuoso
+              key={currentConversationId ?? 'new'}
+              style={{ height: '100%' }}
+              data={messages}
+              followOutput="auto"
+              overscan={400}
+              atBottomThreshold={200}
+              initialTopMostItemIndex={messages.length - 1}
+              components={virtuosoComponents}
+              itemContent={(idx, message: any) => {
+                const isUser = message.role === 'user';
+                const text = renderMessageText(message);
+                const attachmentsForMessage = Array.isArray(message.metadata?.attachments)
+                  ? message.metadata.attachments
+                  : Array.isArray((message as any).attachments)
+                    ? (message as any).attachments
+                    : [];
+
+                return (
+                  <div
+                    key={message.id ?? idx}
+                    className={`mx-auto mb-6 flex w-full max-w-5xl ${isUser ? 'justify-end' : 'justify-center'}`}
+                  >
+                    {isUser ? (
+                      <div className="max-w-[90%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur sm:max-w-[80%]">
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
+                        {attachmentsForMessage.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {attachmentsForMessage.map((attachment: any) => (
+                              <a
+                                key={attachment.id}
+                                href={`/api/attachments/${attachment.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void handleOpenAttachment(attachment);
+                                }}
+                              >
+                                {attachment.is_encrypted ? (
+                                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : (
+                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                )}
+                                {attachment.filename}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        {renderToolChips(message)}
+                      </div>
+                    ) : (
+                      <div className="w-full max-w-[90%] md:max-w-[80ch]">
+                        <div className="text-sm leading-relaxed text-foreground">
+                          <MarkdownMessage text={text} />
+                        </div>
+                        {attachmentsForMessage.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {attachmentsForMessage.map((attachment: any) => (
+                              <a
+                                key={attachment.id}
+                                href={`/api/attachments/${attachment.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void handleOpenAttachment(attachment);
+                                }}
+                              >
+                                {attachment.is_encrypted ? (
+                                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : (
+                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                                )}
+                                {attachment.filename}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        {renderToolChips(message)}
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+            />
+          )}
         </main>
 
         <footer
