@@ -167,6 +167,15 @@ const MarkdownMessage = memo(({ text }: { text: string }) => (
         );
       },
       hr: (props) => <hr className="my-4 border-border/60" {...props} />,
+      table: ({ children }) => (
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[360px] border-collapse text-sm">{children}</table>
+        </div>
+      ),
+      th: (props) => (
+        <th className="border border-border/60 bg-surface/70 px-3 py-2 text-left font-semibold" {...props} />
+      ),
+      td: (props) => <td className="border border-border/60 px-3 py-2 align-top" {...props} />,
     }}
   >
     {text}
@@ -175,15 +184,19 @@ const MarkdownMessage = memo(({ text }: { text: string }) => (
 
 MarkdownMessage.displayName = 'MarkdownMessage';
 
-type ChatScrollerProps = HTMLAttributes<HTMLDivElement> & { paddingBottom?: string };
+type ChatScrollerProps = HTMLAttributes<HTMLDivElement> & { paddingBottom?: string; paddingTop?: string };
 
 const ChatScroller = forwardRef<HTMLDivElement, ChatScrollerProps>(
-  ({ className, style, paddingBottom, ...props }, ref) => (
+  ({ className, style, paddingBottom, paddingTop, ...props }, ref) => (
     <div
       {...props}
       ref={ref}
-      className={['px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6', className].filter(Boolean).join(' ')}
-      style={{ ...(style || {}), paddingBottom: paddingBottom ?? style?.paddingBottom }}
+      className={['px-4 pb-4 sm:pb-6 md:px-10 md:pb-6 overflow-x-hidden', className].filter(Boolean).join(' ')}
+      style={{
+        ...(style || {}),
+        paddingBottom: paddingBottom ?? style?.paddingBottom,
+        paddingTop: paddingTop ?? style?.paddingTop,
+      }}
     />
   ),
 );
@@ -1455,6 +1468,7 @@ export default function Home() {
   );
 
   const scrollerPaddingBottom = isMobile ? '12rem' : undefined;
+  const scrollerPaddingTop = isMobile ? '88px' : '64px';
 
   const VirtuosoFooter = useCallback(() => {
     if (!isLoading) return null;
@@ -1475,11 +1489,11 @@ export default function Home() {
 
   const VirtuosoScroller = useMemo(() => {
     const Component = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>((props, ref) => (
-      <ChatScroller {...props} ref={ref} paddingBottom={scrollerPaddingBottom} />
+      <ChatScroller {...props} ref={ref} paddingBottom={scrollerPaddingBottom} paddingTop={scrollerPaddingTop} />
     ));
     Component.displayName = 'VirtuosoScroller';
     return Component;
-  }, [scrollerPaddingBottom]);
+  }, [scrollerPaddingBottom, scrollerPaddingTop]);
 
   const virtuosoComponents = useMemo(
     () => ({
