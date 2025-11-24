@@ -26,6 +26,10 @@ import { Virtuoso } from 'react-virtuoso';
 import { uploadWithProgress } from '@/lib/client/upload';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;
+const newId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
 
 const formatToolName = (rawName: string) =>
   rawName
@@ -293,10 +297,15 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  type ChatAttachment = ManagedFile & { addToLibrary?: boolean; encryptionPassword?: string };
+  type ChatAttachment = ManagedFile & {
+    addToLibrary?: boolean;
+    encryptionPassword?: string;
+    uploadState?: 'uploading' | 'error' | null;
+    uploadProgress?: number | null;
+    tempId?: string;
+  };
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [availableTools, setAvailableTools] = useState<ToolDefinition[]>([]);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isFileManagerOpen, setIsFileManagerOpen] = useState(false);
@@ -1054,36 +1063,74 @@ export default function Home() {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
-    setUploadProgress(0);
-    const formData = new FormData();
-    Array.from(files).forEach((file) => {
-      formData.append('files', file);
+    const fileArray = Array.from(files);
+    const placeholders: ChatAttachment[] = fileArray.map((file) => {
+      const localId = `local-${newId()}`;
+      return {
+        id: localId,
+        tempId: localId,
+        filename: file.name,
+        mimetype: file.type || 'application/octet-stream',
+        size: file.size ?? 0,
+        created_at: new Date().toISOString(),
+        folder_path: '/',
+        is_library: 0,
+        uploadState: 'uploading',
+        uploadProgress: 0,
+        addToLibrary: true,
+      };
     });
-    formData.append('isLibrary', 'false');
-    formData.append('folderPath', '/');
+    setAttachments((prev) => [...prev, ...placeholders]);
 
     try {
-      const data = await uploadWithProgress<{ error?: string; attachments?: ManagedFile[] }>(
-        '/api/uploads',
-        formData,
-        {
-          onProgress: (percent) => setUploadProgress(percent),
-        },
-      );
+      for (let i = 0; i < fileArray.length; i++) {
+        const file = fileArray[i];
+        const tempId = placeholders[i].id;
+        const formData = new FormData();
+        formData.append('files', file);
+        formData.append('isLibrary', 'false');
+        formData.append('folderPath', '/');
 
-      if (data?.error) {
-        alert(data.error);
-      } else {
-        const uploaded = Array.isArray(data?.attachments) ? (data.attachments as ManagedFile[]) : [];
-        const normalized = uploaded.map((att) => ({ ...att, addToLibrary: true })) as ChatAttachment[];
-        setAttachments((prev) => [...prev, ...normalized]);
+        try {
+          const data = await uploadWithProgress<{ error?: string; attachments?: ManagedFile[] }>(
+            '/api/uploads',
+            formData,
+            {
+              onProgress: (percent) =>
+                setAttachments((prev) =>
+                  prev.map((att) =>
+                    att.id === tempId ? { ...att, uploadProgress: percent ?? att.uploadProgress } : att,
+                  ),
+                ),
+            },
+          );
+
+          if (data?.error) {
+            throw new Error(data.error);
+          }
+          const uploadedList = Array.isArray(data?.attachments) ? (data.attachments as ManagedFile[]) : [];
+          const uploaded = uploadedList[0];
+          if (!uploaded) {
+            throw new Error('Upload response missing attachment');
+          }
+          const normalized: ChatAttachment = {
+            ...(uploaded as ChatAttachment),
+            addToLibrary: true,
+            uploadState: null,
+            uploadProgress: null,
+          };
+          setAttachments((prev) => prev.map((att) => (att.id === tempId ? normalized : att)));
+        } catch (err) {
+          console.error('Failed to upload files:', err);
+          setAttachments((prev) =>
+            prev.map((att) =>
+              att.id === tempId ? { ...att, uploadState: 'error', uploadProgress: null } : att,
+            ),
+          );
+        }
       }
-    } catch (error) {
-      console.error('Failed to upload files:', error);
-      alert('Failed to upload files');
     } finally {
       setIsUploading(false);
-      setUploadProgress(null);
     }
 
     if (fileInputRef.current) {
@@ -1116,7 +1163,8 @@ export default function Home() {
   const removeAttachment = (attachmentId: string) => {
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === attachmentId);
-      if (target && !target.is_library) {
+      const isPendingLocal = target?.uploadState === 'uploading' || (target?.tempId && target?.tempId === target?.id);
+      if (target && !target.is_library && !isPendingLocal) {
         void deleteAttachmentFromServer(attachmentId);
       }
       return prev.filter((a) => a.id !== attachmentId);
@@ -1889,10 +1937,14 @@ export default function Home() {
                   {attachments.map((attachment) => {
                     const showLibraryToggle = !attachment.is_library;
                     const isEncrypted = !!attachment.is_encrypted;
+                    const isUploadingAttachment = attachment.uploadState === 'uploading';
+                    const isUploadError = attachment.uploadState === 'error';
                     return (
                       <span
                         key={attachment.id}
-                        className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-foreground"
+                        className={`inline-flex items-center gap-2 rounded-full border bg-surface px-3 py-1 text-xs text-foreground ${
+                          isUploadError ? 'border-red-400/60 bg-red-500/10' : 'border-border'
+                        }`}
                       >
                         {isEncrypted ? (
                           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3.5 w-3.5 text-accent">
@@ -1904,7 +1956,23 @@ export default function Home() {
                           </svg>
                         )}
                         <span className="truncate max-w-[10rem] sm:max-w-[14rem]">{attachment.filename}</span>
-                        {showLibraryToggle && (
+                        {isUploadingAttachment && (
+                          <div className="flex items-center gap-1 text-[11px] text-muted">
+                            <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-border/60">
+                              <div
+                                className="h-full bg-accent transition-[width]"
+                                style={{ width: `${Math.max(attachment.uploadProgress ?? 10, 5)}%` }}
+                              />
+                            </div>
+                            <span>
+                              {attachment.uploadProgress !== null
+                                ? `${attachment.uploadProgress}%`
+                                : 'Uploading…'}
+                            </span>
+                          </div>
+                        )}
+                        {isUploadError && <span className="text-[11px] text-red-300">Failed</span>}
+                        {showLibraryToggle && !isUploadingAttachment && !isUploadError && (
                           <label className="inline-flex items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted transition hover:text-foreground">
                             <input
                               type="checkbox"
@@ -2010,17 +2078,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-2 sm:ml-0 sm:gap-3">
-                  {isUploading && (
-                    <div className="flex items-center gap-2 text-xs text-muted">
-                      <div className="relative h-1.5 w-24 overflow-hidden rounded-full bg-border/70">
-                        <div
-                          className="h-full bg-accent transition-[width]"
-                          style={{ width: `${Math.max(uploadProgress ?? 10, 5)}%` }}
-                        />
-                      </div>
-                      <span>{uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Uploading…'}</span>
-                    </div>
-                  )}
+                  {isUploading && <span className="text-xs text-muted">Uploading…</span>}
                   {error && !isLoading && (
                     <span className="text-xs text-foreground">{error.message ?? 'An error occurred.'}</span>
                   )}

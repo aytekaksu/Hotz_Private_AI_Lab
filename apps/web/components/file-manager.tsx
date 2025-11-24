@@ -3,6 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { uploadWithProgress } from '@/lib/client/upload';
 
+type PendingUpload = {
+  id: string;
+  name: string;
+  progress: number | null;
+  status: 'uploading' | 'error';
+  encrypted?: boolean;
+};
+
+const newId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+
 export type ManagedFile = {
   id: string;
   filename: string;
@@ -70,7 +83,7 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
   const [files, setFiles] = useState<ManagedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [error, setError] = useState<string | null>(null);
   const deletingFolderRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -104,34 +117,62 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
-    setUploadProgress(0);
     setError(null);
-    const formData = new FormData();
-    Array.from(fileList).forEach((file) => {
-      formData.append('files', file);
-    });
-    formData.append('folderPath', folderPath);
-    formData.append('isLibrary', 'true');
+    const fileArray = Array.from(fileList);
+    const localPendings = fileArray.map((file) => ({
+      id: `pending-${newId()}`,
+      name: file.name,
+      progress: 0,
+      status: 'uploading' as const,
+      encrypted: false,
+    }));
+    setPendingUploads((prev) => [...prev, ...localPendings]);
+
+    let hadSuccess = false;
+    const basePayload = () => {
+      const fd = new FormData();
+      fd.append('folderPath', folderPath);
+      fd.append('isLibrary', 'true');
+      return fd;
+    };
 
     try {
-      const data = await uploadWithProgress<{ error?: string } | { attachments?: ManagedFile[] }>(
-        '/api/uploads',
-        formData,
-        {
-          onProgress: (percent) => setUploadProgress(percent),
-        },
-      );
-      if ((data as any)?.error) {
-        throw new Error((data as any).error || 'Failed to upload files');
+      for (let i = 0; i < fileArray.length; i++) {
+        const file = fileArray[i];
+        const pendingId = localPendings[i].id;
+        const payload = basePayload();
+        payload.append('files', file);
+
+        try {
+          const data = await uploadWithProgress<{ error?: string } | { attachments?: ManagedFile[] }>(
+            '/api/uploads',
+            payload,
+            {
+              onProgress: (percent) =>
+                setPendingUploads((prev) =>
+                  prev.map((p) => (p.id === pendingId ? { ...p, progress: percent ?? p.progress } : p)),
+                ),
+            },
+          );
+          if ((data as any)?.error) {
+            throw new Error((data as any).error || 'Failed to upload files');
+          }
+          setPendingUploads((prev) => prev.filter((p) => p.id !== pendingId));
+          hadSuccess = true;
+        } catch (innerErr) {
+          console.error('File upload failed:', innerErr);
+          setPendingUploads((prev) =>
+            prev.map((p) => (p.id === pendingId ? { ...p, status: 'error', progress: null } : p)),
+          );
+          setError(innerErr instanceof Error ? innerErr.message : 'Failed to upload files');
+        }
       }
-      await loadFolder(folderPath);
-      onMutate?.();
-    } catch (err) {
-      console.error('File upload failed:', err);
-      setError(err instanceof Error ? err.message : 'Failed to upload files');
+      if (hadSuccess) {
+        await loadFolder(folderPath);
+        onMutate?.();
+      }
     } finally {
       setUploading(false);
-      setUploadProgress(null);
       if (uploadInputRef.current) {
         uploadInputRef.current.value = '';
       }
@@ -142,7 +183,6 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
     if (!fileList || fileList.length === 0) return;
     if (fileList.length > 1) {
       setError('Upload encrypted files one at a time so each can have its own password.');
-      setUploadProgress(null);
       if (encryptedUploadInputRef.current) encryptedUploadInputRef.current.value = '';
       return;
     }
@@ -161,8 +201,13 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
       alert('Passwords did not match. Please enter the same password twice.');
     }
     setUploading(true);
-    setUploadProgress(0);
     setError(null);
+    const pendingId = `pending-${newId()}`;
+    setPendingUploads((prev) => [
+      ...prev,
+      { id: pendingId, name: fileList[0].name, progress: 0, status: 'uploading', encrypted: true },
+    ]);
+
     const formData = new FormData();
     Array.from(fileList).forEach((file) => {
       formData.append('files', file);
@@ -177,20 +222,26 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
         '/api/uploads',
         formData,
         {
-          onProgress: (percent) => setUploadProgress(percent),
+          onProgress: (percent) =>
+            setPendingUploads((prev) =>
+              prev.map((p) => (p.id === pendingId ? { ...p, progress: percent ?? p.progress } : p)),
+            ),
         },
       );
       if ((data as any)?.error) {
         throw new Error((data as any).error || 'Failed to upload encrypted file');
       }
+      setPendingUploads((prev) => prev.filter((p) => p.id !== pendingId));
       await loadFolder(folderPath);
       onMutate?.();
     } catch (err) {
       console.error('Encrypted file upload failed:', err);
+      setPendingUploads((prev) =>
+        prev.map((p) => (p.id === pendingId ? { ...p, status: 'error', progress: null } : p)),
+      );
       setError(err instanceof Error ? err.message : 'Failed to upload encrypted file');
     } finally {
       setUploading(false);
-      setUploadProgress(null);
       if (encryptedUploadInputRef.current) {
         encryptedUploadInputRef.current.value = '';
       }
@@ -431,17 +482,6 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
           </label>
         </div>
       </div>
-      {uploading && (
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-muted">
-          <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-border/60">
-            <div
-              className="h-full bg-accent transition-[width]"
-              style={{ width: `${Math.max(uploadProgress ?? 10, 5)}%` }}
-            />
-          </div>
-          <span>{uploadProgress !== null ? `Uploading… ${uploadProgress}%` : 'Uploading…'}</span>
-        </div>
-      )}
 
       {error && <div className="mt-2 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-100">{error}</div>}
 
@@ -450,6 +490,38 @@ export function FileManager({ selectedIds, onSelect, onDeselect, refreshToken = 
           <div className="px-3 py-4 text-center text-xs text-muted">Loading…</div>
         ) : (
           <div className="divide-y divide-border/70 text-sm text-foreground">
+            {pendingUploads.map((upload) => (
+              <div
+                key={upload.id}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left opacity-90"
+              >
+                <div className="flex flex-1 items-center gap-2 text-left">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4 text-accent">
+                    <path d="M4.167 10 10 4.167m0 0L15.833 10M10 4.167V15" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{upload.name}</p>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
+                      <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-border/60">
+                        <div
+                          className={`h-full ${upload.status === 'error' ? 'bg-red-500' : 'bg-accent'} transition-[width]`}
+                          style={{ width: `${Math.max(upload.progress ?? 10, 5)}%` }}
+                        />
+                      </div>
+                      <span>
+                        {upload.status === 'error'
+                          ? 'Failed'
+                          : upload.progress !== null
+                            ? `Uploading… ${upload.progress}%`
+                            : 'Uploading…'}
+                      </span>
+                      {upload.encrypted && <span className="rounded border border-border px-1">Encrypted</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[11px] text-muted">Pending</div>
+              </div>
+            ))}
             {folders.map((folder) => (
               <div
                 key={folder.id}
