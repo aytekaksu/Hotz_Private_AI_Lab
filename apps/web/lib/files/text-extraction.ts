@@ -1,12 +1,40 @@
-const TEXT_STREAM_MIMETYPES = new Set(['application/json']);
+const normalizeMimeType = (value?: string | null) => {
+  if (typeof value !== 'string') return '';
+  const base = value.split(';')[0]?.trim().toLowerCase();
+  return base || '';
+};
 
-export const shouldStreamTextContent = (mimetype: string) =>
-  mimetype.startsWith('text/') || TEXT_STREAM_MIMETYPES.has(mimetype);
+const TEXT_STREAM_MIMETYPES = new Set([
+  'application/json',
+  'application/ndjson',
+  'application/x-ndjson',
+  'application/jsonl',
+  'application/graphql',
+  'application/sql',
+  'application/x-sql',
+  'application/xml',
+  'application/xhtml+xml',
+  'application/yaml',
+  'application/x-yaml',
+  'application/rtf',
+]);
+
+export const shouldStreamTextContent = (mimetype: string) => {
+  const normalized = normalizeMimeType(mimetype);
+  return (
+    normalized.startsWith('text/') ||
+    normalized.endsWith('+json') ||
+    normalized.endsWith('+xml') ||
+    TEXT_STREAM_MIMETYPES.has(normalized)
+  );
+};
 
 // Helper to extract text from binary formats that require parsing
 export async function extractTextFromBytes(data: Uint8Array, mimetype: string): Promise<string | undefined> {
   try {
-    if (mimetype === 'application/pdf') {
+    const normalizedType = normalizeMimeType(mimetype);
+
+    if (normalizedType === 'application/pdf') {
       try {
         const pdfParse = (await import('pdf-parse')).default as (data: Buffer) => Promise<{ text: string }>;
         const res = await pdfParse(Buffer.from(data));
@@ -16,7 +44,7 @@ export async function extractTextFromBytes(data: Uint8Array, mimetype: string): 
         return undefined;
       }
     }
-    if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    if (normalizedType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       try {
         const mammoth = await import('mammoth');
         const res = await mammoth.extractRawText({ buffer: Buffer.from(data) });

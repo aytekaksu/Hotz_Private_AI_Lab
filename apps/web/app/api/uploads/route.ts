@@ -22,24 +22,142 @@ const getExtension = (filename: string) => {
     return '';
   }
   const lastDot = normalized.lastIndexOf('.');
-  return lastDot > 0 ? normalized.slice(lastDot) : '';
+  return lastDot > 0 ? normalized.slice(lastDot).toLowerCase() : '';
 };
 
-// Allowed file types
-const ALLOWED_MIMETYPES = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'text/plain',
-  'text/csv',
-  'text/html',
-  'text/markdown',
+const normalizeMimeType = (value?: string | null) => {
+  if (typeof value !== 'string') return '';
+  const base = value.split(';')[0]?.trim().toLowerCase();
+  return base || '';
+};
+
+const isImageMime = (mime: string) => mime.startsWith('image/');
+
+const TEXT_LIKE_APPLICATION_MIMETYPES = new Set([
   'application/json',
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-];
+  'application/ndjson',
+  'application/x-ndjson',
+  'application/jsonl',
+  'application/graphql',
+  'application/sql',
+  'application/x-sql',
+  'application/xml',
+  'application/xhtml+xml',
+  'application/yaml',
+  'application/x-yaml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/typescript',
+  'application/x-typescript',
+  'application/rtf',
+]);
+
+const TEXT_LIKE_EXTENSIONS = new Set([
+  '.txt',
+  '.log',
+  '.md',
+  '.markdown',
+  '.csv',
+  '.tsv',
+  '.json',
+  '.jsonl',
+  '.ndjson',
+  '.html',
+  '.htm',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.ini',
+  '.conf',
+  '.cfg',
+  '.env',
+  '.properties',
+  '.toml',
+  '.sql',
+  '.graphql',
+  '.gql',
+  '.srt',
+  '.vtt',
+  '.lrc',
+  '.tex',
+  '.rst',
+  '.org',
+  '.rtf',
+  '.js',
+  '.ts',
+  '.tsx',
+  '.jsx',
+  '.py',
+  '.rb',
+  '.go',
+  '.rs',
+  '.java',
+  '.c',
+  '.cpp',
+  '.h',
+  '.hpp',
+  '.cs',
+  '.php',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.fish',
+  '.ps1',
+]);
+
+const EXTENSION_MIMETYPE_MAP = new Map<string, string>([
+  ['.md', 'text/markdown'],
+  ['.markdown', 'text/markdown'],
+  ['.csv', 'text/csv'],
+  ['.tsv', 'text/tab-separated-values'],
+  ['.json', 'application/json'],
+  ['.jsonl', 'application/json'],
+  ['.ndjson', 'application/x-ndjson'],
+  ['.html', 'text/html'],
+  ['.htm', 'text/html'],
+  ['.xml', 'application/xml'],
+  ['.yaml', 'application/yaml'],
+  ['.yml', 'application/yaml'],
+  ['.graphql', 'application/graphql'],
+  ['.gql', 'application/graphql'],
+  ['.sql', 'application/sql'],
+  ['.txt', 'text/plain'],
+  ['.log', 'text/plain'],
+  ['.pdf', 'application/pdf'],
+  ['.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['.rtf', 'application/rtf'],
+]);
+
+const isTextLikeMime = (mime?: string) => {
+  if (!mime) return false;
+  return (
+    mime.startsWith('text/') ||
+    mime.endsWith('+json') ||
+    mime.endsWith('+xml') ||
+    TEXT_LIKE_APPLICATION_MIMETYPES.has(mime)
+  );
+};
+
+const classifyUpload = (file: File) => {
+  const normalizedType = normalizeMimeType(file.type);
+  const extension = getExtension(file.name);
+  const extensionMime = EXTENSION_MIMETYPE_MAP.get(extension) || '';
+  const textLike =
+    isTextLikeMime(normalizedType) || isTextLikeMime(extensionMime) || TEXT_LIKE_EXTENSIONS.has(extension);
+  const resolvedType =
+    (normalizedType && normalizedType !== 'application/octet-stream' ? normalizedType : '') ||
+    extensionMime ||
+    (textLike ? 'text/plain' : 'application/octet-stream');
+
+  const allowed =
+    isImageMime(normalizedType) ||
+    isImageMime(extensionMime) ||
+    textLike ||
+    resolvedType === 'application/pdf' ||
+    resolvedType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  return { allowed, resolvedType };
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -77,11 +195,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'A password is required for encrypted uploads' }, { status: 400 });
     }
     
+    const uploads = files.map((file) => ({ file, ...classifyUpload(file) }));
+
     // Validate file types
-    for (const file of files) {
-      if (!ALLOWED_MIMETYPES.includes(file.type)) {
-        return Response.json({ 
-          error: `File type not supported: ${file.type}. Only images and text documents are allowed.` 
+    for (const { file, allowed, resolvedType } of uploads) {
+      if (!allowed) {
+        const reportedType = normalizeMimeType(file.type) || resolvedType || file.type || 'unknown';
+        return Response.json({
+          error: `File type not supported: ${reportedType}. Only images, PDFs/DOCX, and text-based documents (txt, csv, json, md, etc.) are allowed.`,
         }, { status: 400 });
       }
     }
@@ -91,7 +212,7 @@ export async function POST(req: NextRequest) {
     
     const attachments = [];
     
-    for (const file of files) {
+    for (const { file, resolvedType } of uploads) {
       if (isEncryptedUpload) {
         const bytes = new Uint8Array(await Bun.readableStreamToArrayBuffer(file.stream()));
         const encryptedBytes = await createEncryptedZip(bytes, file.name, encryptionPassword);
@@ -102,7 +223,7 @@ export async function POST(req: NextRequest) {
 
         const attachment = createAttachment(
           file.name,
-          file.type,
+          resolvedType,
           bytes.byteLength,
           filepath,
           undefined,
@@ -118,7 +239,7 @@ export async function POST(req: NextRequest) {
       let binaryStream = file.stream();
       let textCapturePromise: Promise<string | undefined> | undefined;
       
-      if (shouldStreamTextContent(file.type)) {
+      if (shouldStreamTextContent(resolvedType)) {
         const [bytesStream, textStream] = binaryStream.tee();
         binaryStream = bytesStream;
         textCapturePromise = Bun.readableStreamToText(textStream)
@@ -134,7 +255,7 @@ export async function POST(req: NextRequest) {
       
       const extractedText = textCapturePromise
         ? await textCapturePromise
-        : await extractTextFromBytes(bytes, file.type);
+        : await extractTextFromBytes(bytes, resolvedType);
       const normalizedText = extractedText?.trim();
       
       // Generate unique filename
@@ -148,7 +269,7 @@ export async function POST(req: NextRequest) {
       // Save to database
       const attachment = createAttachment(
         file.name,
-        file.type,
+        resolvedType,
         bytes.byteLength,
         filepath,
         normalizedText && normalizedText.length > 0 ? normalizedText : undefined,
