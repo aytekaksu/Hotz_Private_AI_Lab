@@ -342,6 +342,7 @@ export default function Home() {
   const fileManagerPopoverRef = useRef<HTMLDivElement>(null);
   const fileManagerButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarListRef = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -1810,9 +1811,10 @@ export default function Home() {
               key={currentConversationId ?? 'new'}
               style={{ height: '100%', width: '100%' }}
               data={messages}
-              followOutput="auto"
+              followOutput={isAtBottom ? 'smooth' : false}
               overscan={400}
               atBottomThreshold={200}
+              atBottomStateChange={setIsAtBottom}
               initialTopMostItemIndex={messages.length - 1}
               components={virtuosoComponents}
               itemContent={(idx, message: any) => {
