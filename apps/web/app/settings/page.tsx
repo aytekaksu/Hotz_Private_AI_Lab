@@ -332,26 +332,27 @@ export default function SettingsPage() {
     setIsLoading(true);
     await fetchGoogleClientConfig();
     let notionSecretConfigured = false;
+    let openrouterKeyPresent = false;
+    let anthropicKeyPresent = false;
     try {
       const response = await fetch(`/api/settings/openrouter-key?userId=${uid}`);
       const data = await response.json();
-      if (data.hasKey) {
+      openrouterKeyPresent = !!data.hasKey;
+      if (openrouterKeyPresent) {
         const suffix = typeof data.keySuffix === 'string' ? data.keySuffix : null;
         syncOpenRouter(true, suffix);
       } else {
         syncOpenRouter(false, null);
       }
 
-      let anthropicKeyPresent = false;
       try {
         const aRes = await fetch(`/api/settings/anthropic-key?userId=${uid}`);
         const aData = await aRes.json();
-        if (aData.hasKey) {
-          anthropicKeyPresent = true;
+        anthropicKeyPresent = !!aData.hasKey;
+        if (anthropicKeyPresent) {
           const suffix = typeof aData.keySuffix === 'string' ? aData.keySuffix : null;
           syncAnthropic(true, suffix);
         } else {
-          anthropicKeyPresent = false;
           syncAnthropic(false, null);
         }
       } catch (error) {
@@ -375,10 +376,17 @@ export default function SettingsPage() {
         const providerRes = await fetch(`/api/settings/provider?userId=${uid}`);
         if (providerRes.ok) {
           const p = await providerRes.json();
-          if (p.provider === 'anthropic' && !anthropicKeyPresent) {
+          const preferred = p.provider === 'anthropic' ? 'anthropic' : 'openrouter';
+          if (preferred === 'anthropic' && anthropicKeyPresent) {
+            setProvider('anthropic');
+          } else if (preferred === 'openrouter' && openrouterKeyPresent) {
             setProvider('openrouter');
+          } else if (openrouterKeyPresent) {
+            setProvider('openrouter');
+          } else if (anthropicKeyPresent) {
+            setProvider('anthropic');
           } else {
-            setProvider(p.provider === 'anthropic' ? 'anthropic' : 'openrouter');
+            setProvider('openrouter');
           }
         }
       } catch (error) {
@@ -471,7 +479,16 @@ export default function SettingsPage() {
 
   const saveOpenRouterKey = () => openRouterSecret.save(userId);
 
-  const removeOpenRouterKey = () => openRouterSecret.remove(userId);
+  const removeOpenRouterKey = async () => {
+    const removed = await openRouterSecret.remove(userId);
+    if (removed && provider === 'openrouter') {
+      if (anthropicSecret.hasSecret) {
+        await saveProvider('anthropic');
+      } else {
+        setProvider('openrouter');
+      }
+    }
+  };
 
   const saveAnthropicKey = () => anthropicSecret.save(userId);
 
@@ -519,19 +536,28 @@ export default function SettingsPage() {
   const saveProvider = async (prov: 'openrouter' | 'anthropic') => {
     if (prov === 'anthropic' && !anthropicSecret.hasSecret) {
       alert('Add your Anthropic API key first.');
-      setProvider('openrouter');
+      setProvider(openRouterSecret.hasSecret ? 'openrouter' : 'openrouter');
+      return;
+    }
+    if (prov === 'openrouter' && !openRouterSecret.hasSecret) {
+      alert('Add your OpenRouter API key first.');
+      setProvider(anthropicSecret.hasSecret ? 'anthropic' : 'openrouter');
       return;
     }
     setProvider(prov);
     try {
-      await fetch('/api/settings/provider', {
+      const response = await fetch('/api/settings/provider', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, provider: prov }),
       });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || 'Failed to save provider preference');
+      }
     } catch (error) {
       console.error('Failed to save provider preference:', error);
-      alert('Failed to save provider preference');
+      alert(error instanceof Error ? error.message : 'Failed to save provider preference');
     }
   };
 
@@ -660,8 +686,8 @@ export default function SettingsPage() {
     }
   };
 
-  const openRouterEnabled = provider === 'openrouter';
-  const anthropicEnabled = provider === 'anthropic';
+  const openRouterEnabled = provider === 'openrouter' && openRouterSecret.hasSecret;
+  const anthropicEnabled = provider === 'anthropic' && anthropicSecret.hasSecret;
   const hasNotionSecret = notionSecretField.hasSecret;
   const notionSaveLabel = hasNotionSecret ? 'Update secret' : 'Save secret';
   const notionSaveButtonText = notionSecretField.isSaving ? 'Saving…' : notionSaveLabel;
@@ -986,9 +1012,11 @@ export default function SettingsPage() {
                       type="button"
                       className={`flex items-center justify-center rounded-full px-3 py-1.5 text-sm transition ${
                         provider === 'openrouter' ? 'bg-surface text-foreground shadow-sm' : 'text-muted'
-                      }`}
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
                       aria-pressed={provider === 'openrouter'}
                       onClick={() => saveProvider('openrouter')}
+                      disabled={!openRouterSecret.hasSecret && provider !== 'openrouter'}
+                      title={!openRouterSecret.hasSecret ? 'Add your OpenRouter API key first' : undefined}
                     >
                       OpenRouter
                     </button>

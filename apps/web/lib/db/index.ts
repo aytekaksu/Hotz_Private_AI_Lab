@@ -220,8 +220,17 @@ export function updateUserModelDefaults(userId: string, model: string | null, ro
 
 export function getActiveAIProvider(userId: string): 'openrouter' | 'anthropic' {
   const user = getUserById(userId);
-  const provider = user?.active_ai_provider;
-  return provider === 'anthropic' ? 'anthropic' : 'openrouter';
+  const hasOpenRouter = !!(user?.openrouter_api_key || process.env.OPENROUTER_API_KEY);
+  const hasAnthropic = !!(user?.anthropic_api_key || process.env.ANTHROPIC_API_KEY);
+  const preferred = user?.active_ai_provider === 'anthropic' ? 'anthropic' : 'openrouter';
+
+  if (preferred === 'anthropic' && hasAnthropic) return 'anthropic';
+  if (preferred === 'openrouter' && hasOpenRouter) return 'openrouter';
+
+  if (hasOpenRouter) return 'openrouter';
+  if (hasAnthropic) return 'anthropic';
+
+  return 'openrouter';
 }
 
 export function setActiveAIProvider(userId: string, provider: 'openrouter' | 'anthropic'): void {
