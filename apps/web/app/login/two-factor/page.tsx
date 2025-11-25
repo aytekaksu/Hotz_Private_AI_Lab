@@ -235,7 +235,7 @@ export default function TwoFactorPage() {
             <button
               onClick={handleVerify}
               disabled={verifying}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition hover:shadow-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-foreground shadow-lg shadow-accent/20 transition hover:shadow-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {verifying ? 'Verifying…' : 'Verify & continue'}
             </button>
