@@ -10,12 +10,15 @@ import {
   getAuthSessionByTokenHash,
   deleteAuthSession,
   deleteAuthSessionsByUser,
+  setAuthSessionMfaCompleted,
   getUserById,
   type User,
 } from '@/lib/db';
 
 const SESSION_COOKIE_NAME = 'auth_session';
+const MFA_COOKIE_NAME = 'auth_mfa';
 const TOKEN_LENGTH = 32; // 256 bits
+type SessionOptions = { allowPendingMfa?: boolean };
 
 /**
  * Generate a cryptographically secure random token.
@@ -42,10 +45,11 @@ async function hashToken(token: string): Promise<string> {
  * Create a new session for a user and set the session cookie.
  * Returns the session ID.
  */
-export async function createSession(userId: string): Promise<string> {
+export async function createSession(userId: string, options?: { mfaCompleted?: boolean }): Promise<string> {
   const token = generateToken();
   const tokenHash = await hashToken(token);
-  const session = createAuthSession(userId, tokenHash);
+  const mfaCompleted = options?.mfaCompleted === true;
+  const session = createAuthSession(userId, tokenHash, mfaCompleted);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, token, {
@@ -55,49 +59,75 @@ export async function createSession(userId: string): Promise<string> {
     path: '/',
     maxAge: 30 * 24 * 60 * 60, // 30 days
   });
+  cookieStore.set(MFA_COOKIE_NAME, mfaCompleted ? 'passed' : 'pending', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 30 * 24 * 60 * 60,
+  });
 
   return session.id;
 }
 
-/**
- * Get the current session from cookies (for Server Components / Route Handlers).
- * Returns the user if session is valid, null otherwise.
- */
-export async function getSessionUser(): Promise<User | null> {
+async function getSession(
+  options?: SessionOptions
+): Promise<{ user: User; sessionId: string; mfaCompleted: boolean } | null> {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (!token) return null;
 
     const tokenHash = await hashToken(token);
-    const session = getAuthSessionByTokenHash(tokenHash);
+    const session = getAuthSessionByTokenHash(tokenHash, { allowPendingMfa: options?.allowPendingMfa });
     if (!session) return null;
 
     const user = getUserById(session.user_id);
-    return user;
+    if (!user) return null;
+
+    const mfaCompleted = session.mfa_completed === 1 || session.mfa_completed === true;
+    return { user, sessionId: session.id, mfaCompleted };
+  } catch {
+    return null;
+  }
+}
+
+async function getSessionFromRequest(
+  req: NextRequest,
+  options?: SessionOptions
+): Promise<{ user: User; sessionId: string; mfaCompleted: boolean } | null> {
+  try {
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const tokenHash = await hashToken(token);
+    const session = getAuthSessionByTokenHash(tokenHash, { allowPendingMfa: options?.allowPendingMfa });
+    if (!session) return null;
+
+    const user = getUserById(session.user_id);
+    if (!user) return null;
+
+    const mfaCompleted = session.mfa_completed === 1 || session.mfa_completed === true;
+    return { user, sessionId: session.id, mfaCompleted };
   } catch {
     return null;
   }
 }
 
 /**
- * Get the current session from a NextRequest (for middleware).
- * Returns the user if session is valid, null otherwise.
+ * Get the current session user (requires MFA by default).
  */
-export async function getSessionUserFromRequest(req: NextRequest): Promise<User | null> {
-  try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-    if (!token) return null;
+export async function getSessionUser(options?: SessionOptions): Promise<User | null> {
+  const session = await getSession(options);
+  return session?.user ?? null;
+}
 
-    const tokenHash = await hashToken(token);
-    const session = getAuthSessionByTokenHash(tokenHash);
-    if (!session) return null;
-
-    const user = getUserById(session.user_id);
-    return user;
-  } catch {
-    return null;
-  }
+/**
+ * Get the current session user from a NextRequest (requires MFA by default).
+ */
+export async function getSessionUserFromRequest(req: NextRequest, options?: SessionOptions): Promise<User | null> {
+  const session = await getSessionFromRequest(req, options);
+  return session?.user ?? null;
 }
 
 /**
@@ -115,6 +145,7 @@ export async function destroySession(): Promise<void> {
       }
     }
     cookieStore.delete(SESSION_COOKIE_NAME);
+    cookieStore.delete(MFA_COOKIE_NAME);
   } catch {
     // Ignore errors during cleanup
   }
@@ -125,6 +156,25 @@ export async function destroySession(): Promise<void> {
  */
 export function destroyAllUserSessions(userId: string): void {
   deleteAuthSessionsByUser(userId);
+}
+
+export async function markSessionMfaCompleted(sessionId: string): Promise<void> {
+  try {
+    setAuthSessionMfaCompleted(sessionId);
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (token) {
+      cookieStore.set(MFA_COOKIE_NAME, 'passed', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 30 * 24 * 60 * 60,
+      });
+    }
+  } catch (error) {
+    console.error('Failed to mark session MFA complete:', error);
+  }
 }
 
 /**
@@ -143,3 +193,4 @@ export async function hasValidSessionFromRequest(req: NextRequest): Promise<bool
   return user !== null;
 }
 
+export { getSession, getSessionFromRequest };

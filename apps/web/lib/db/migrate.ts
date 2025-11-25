@@ -363,6 +363,17 @@ const migrations = [
     setVersion(14);
     console.log('✓ Migration 14 completed');
   },
+
+  // Migration 15: TOTP and MFA columns
+  function migration15() {
+    console.log('Running migration 15: TOTP + MFA columns');
+    try { db.exec("ALTER TABLE auth_sessions ADD COLUMN mfa_completed INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT NULL"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { db.exec("ALTER TABLE users ADD COLUMN totp_confirmed_at TEXT NULL"); } catch {}
+    setVersion(15);
+    console.log('✓ Migration 15 completed');
+  },
 ];
 
 // Run migrations

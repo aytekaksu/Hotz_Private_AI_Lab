@@ -11,6 +11,8 @@ interface AuthStatus {
   user: { id: string; email: string } | null;
   firstLoginCompleted: boolean;
   googleClientConfigured: boolean;
+  mfaPending?: boolean;
+  totpEnabled?: boolean;
 }
 
 export default function LoginPage() {
@@ -33,6 +35,8 @@ export default function LoginPage() {
       // If already authenticated, redirect to home
       if (data.authenticated) {
         router.replace('/');
+      } else if (data.mfaPending) {
+        router.replace('/login/two-factor');
       }
     } catch (err) {
       console.error('Failed to fetch auth status:', err);
@@ -286,4 +290,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

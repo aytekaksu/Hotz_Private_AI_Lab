@@ -7,9 +7,11 @@ export {
   createSession,
   getSessionUser,
   getSessionUserFromRequest,
+  getSession,
+  getSessionFromRequest,
+  markSessionMfaCompleted,
   destroySession,
   destroyAllUserSessions,
   hasValidSession,
   hasValidSessionFromRequest,
 } from './session';
-

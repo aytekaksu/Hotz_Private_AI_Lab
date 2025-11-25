@@ -4,7 +4,7 @@ import {
   storeOAuthCredential,
   getUserByEmail,
   createUser,
-  setFirstLoginCompleted,
+  isUserTotpEnabled,
 } from '@/lib/db';
 import { createBaseGoogleOAuth2Client } from '@/lib/google-auth';
 import { isEmailAuthorized } from '@/lib/auth/config';
@@ -51,11 +51,12 @@ const fetchAccountEmail = async (oauth2Client: any): Promise<string | null> => {
 export async function GET(req: NextRequest) {
   const baseUrl = resolveBaseUrl(req);
   const loginUrl = `${baseUrl}/login`;
-  const homeUrl = `${baseUrl}/`;
   const settingsUrl = `${baseUrl}/settings`;
+  const totpUrl = `${baseUrl}/login/two-factor`;
   
   const redirectToLogin = (query: string) => Response.redirect(`${loginUrl}?${query}`);
   const redirectToSettings = (query: string) => Response.redirect(`${settingsUrl}?${query}`);
+  const redirectToTotp = (mode: 'setup' | 'verify') => Response.redirect(`${totpUrl}?mode=${mode}`);
   
   const params = req.nextUrl.searchParams;
   const state = params.get('state') || 'login';
@@ -124,14 +125,11 @@ export async function GET(req: NextRequest) {
         accountEmail
       );
 
-      // Mark first login as completed
-      setFirstLoginCompleted();
+      // Create session (MFA will be required immediately after)
+      await createSession(user.id, { mfaCompleted: false });
 
-      // Create session
-      await createSession(user.id);
-
-      // Redirect to home
-      return Response.redirect(homeUrl);
+      const totpEnabled = isUserTotpEnabled(user.id);
+      return redirectToTotp(totpEnabled ? 'verify' : 'setup');
     }
 
     // For reconnect flow: must be already logged in

@@ -45,6 +45,9 @@ export interface User {
   active_ai_provider?: 'openrouter' | 'anthropic' | null;
   default_model?: string | null;
   default_routing_variant?: string | null;
+  totp_secret?: string | null;
+  totp_enabled?: number | boolean;
+  totp_confirmed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -229,6 +232,55 @@ export function setActiveAIProvider(userId: string, provider: 'openrouter' | 'an
     WHERE id = ?
   `);
   stmt.run(provider, userId);
+}
+
+// TOTP / MFA helpers
+export async function setUserTotpSecret(userId: string, secret: string): Promise<void> {
+  const db = getDb();
+  const encrypted = await encryptField(secret);
+  const stmt = db.prepare(`
+    UPDATE users
+    SET totp_secret = ?, totp_enabled = 0, totp_confirmed_at = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(encrypted, userId);
+}
+
+export async function getUserTotpSecret(userId: string): Promise<string | null> {
+  const user = getUserById(userId);
+  if (!user?.totp_secret) return null;
+  try {
+    return await decryptField(user.totp_secret);
+  } catch (error) {
+    console.error('Failed to decrypt TOTP secret:', error);
+    return null;
+  }
+}
+
+export function markUserTotpEnabled(userId: string): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    UPDATE users
+    SET totp_enabled = 1, totp_confirmed_at = COALESCE(totp_confirmed_at, datetime('now')), updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(userId);
+}
+
+export function clearUserTotp(userId: string): void {
+  const db = getDb();
+  const stmt = db.prepare(`
+    UPDATE users
+    SET totp_secret = NULL, totp_enabled = 0, totp_confirmed_at = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(userId);
+}
+
+export function isUserTotpEnabled(userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  return user.totp_enabled === 1 || user.totp_enabled === true;
 }
 
 // Conversation operations
@@ -1219,24 +1271,36 @@ export interface AuthSession {
   token_hash: string;
   created_at: string;
   expires_at: string;
+   mfa_completed?: number | boolean;
 }
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-export function createAuthSession(userId: string, tokenHash: string): AuthSession {
+export function createAuthSession(userId: string, tokenHash: string, mfaCompleted = false): AuthSession {
   const db = getDb();
   const id = crypto.randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_DURATION_MS);
   const stmt = db.prepare(`
-    INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at, mfa_completed)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(id, userId, tokenHash, now.toISOString(), expiresAt.toISOString());
-  return { id, user_id: userId, token_hash: tokenHash, created_at: now.toISOString(), expires_at: expiresAt.toISOString() };
+  const mfaValue = mfaCompleted ? 1 : 0;
+  stmt.run(id, userId, tokenHash, now.toISOString(), expiresAt.toISOString(), mfaValue);
+  return {
+    id,
+    user_id: userId,
+    token_hash: tokenHash,
+    created_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+    mfa_completed: mfaValue,
+  };
 }
 
-export function getAuthSessionByTokenHash(tokenHash: string): AuthSession | null {
+export function getAuthSessionByTokenHash(
+  tokenHash: string,
+  options?: { allowPendingMfa?: boolean }
+): AuthSession | null {
   const db = getDb();
   const stmt = db.prepare('SELECT * FROM auth_sessions WHERE token_hash = ?');
   const row = stmt.get(tokenHash) as AuthSession | undefined;
@@ -1244,6 +1308,10 @@ export function getAuthSessionByTokenHash(tokenHash: string): AuthSession | null
   // Check expiry
   if (new Date(row.expires_at) < new Date()) {
     deleteAuthSession(row.id);
+    return null;
+  }
+  const mfaCompleted = row.mfa_completed === 1 || row.mfa_completed === true;
+  if (!mfaCompleted && !options?.allowPendingMfa) {
     return null;
   }
   return row;
@@ -1263,6 +1331,15 @@ export function cleanExpiredSessions(): number {
   const db = getDb();
   const result = db.prepare('DELETE FROM auth_sessions WHERE expires_at < datetime(\'now\')').run();
   return result.changes;
+}
+
+export function setAuthSessionMfaCompleted(sessionId: string): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE auth_sessions
+    SET mfa_completed = 1
+    WHERE id = ?
+  `).run(sessionId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
