@@ -13,9 +13,11 @@ type ApiKeyHandlerOptions = {
 
 export const createApiKeyHandlers = ({ keyField, getUserKey, updateUserKey, messages }: ApiKeyHandlerOptions) => {
   const GET = protectedRoute(async (_req, user) => {
+    const storedKey = await getUserKey(user.id);
+    const hasKey = typeof storedKey === 'string' && storedKey.trim().length > 0;
     return {
-      hasKey: Boolean(user[keyField]),
-      keySuffix: suffix(await getUserKey(user.id)),
+      hasKey,
+      keySuffix: hasKey ? suffix(storedKey) : null,
     };
   });
 
