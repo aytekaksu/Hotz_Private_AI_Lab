@@ -453,6 +453,19 @@ const renderToolChips = (message: any) => {
   );
 };
 
+const triggerDownload = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noreferrer';
+  link.download = filename || 'file';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
 export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
@@ -1736,27 +1749,6 @@ export default function Home() {
     [VirtuosoScroller, VirtuosoFooter, VirtuosoHeader],
   );
 
-  if (!userId) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted">
-        Initializing workspace…
-      </div>
-    );
-  }
-
-  const triggerDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noreferrer';
-    link.download = filename || 'file';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  };
-
   const handleOpenAttachment = useCallback(async (attachment: any) => {
     if (attachment?.is_encrypted) {
       let lastError: string | null = null;
@@ -1795,6 +1787,15 @@ export default function Home() {
       window.open(`/api/attachments/${attachment.id}`, '_blank', 'noopener,noreferrer');
     }
   }, []);
+
+  if (!userId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted">
+        Initializing workspace…
+      </div>
+    );
+  }
+
 
 
   return (
