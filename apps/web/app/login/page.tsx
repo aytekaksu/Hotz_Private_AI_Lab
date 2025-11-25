@@ -134,8 +134,8 @@ export default function LoginPage() {
     );
   }
 
-  // Allow credential upload until the very first successful login is completed
-  const showCredentialUpload = !authStatus?.firstLoginCompleted;
+  // Only show first-time setup helpers until the very first successful login is completed
+  const showFirstTimeSetup = !authStatus?.firstLoginCompleted;
   const canLogin = authStatus?.googleClientConfigured;
 
   return (
@@ -168,7 +168,7 @@ export default function LoginPage() {
             )}
 
             {/* Credential Upload Section - Visible until first login completes */}
-            {showCredentialUpload && (
+            {showFirstTimeSetup && (
               <div className="mb-6">
                 <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
                   <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-400">
@@ -304,28 +304,30 @@ export default function LoginPage() {
         </div>
 
         {/* Instructions */}
-        <div className="rounded-3xl border border-border bg-card/70 p-6 shadow-lg backdrop-blur">
-          <h2 className="text-lg font-semibold text-foreground">How to get your Google OAuth JSON</h2>
-          <p className="mt-1 text-xs text-muted">
-            Use these steps to create the client and download the JSON before uploading it here.
-          </p>
-          <ol className="mt-4 space-y-3 text-sm text-foreground">
-            <li>1) Open <a className="underline" href="https://console.cloud.google.com" target="_blank" rel="noreferrer">Google Cloud Console</a>.</li>
-            <li>2) Create a new project (e.g., “assistant”).</li>
-            <li>3) Click “Get started” for OAuth consent.</li>
-            <li>4) Enter an app name (e.g., “assistant”) and select your email for user support.</li>
-            <li>5) Choose “External” as the audience (required for non-Workspace accounts).</li>
-            <li>6) Enter your email again when prompted, then finish.</li>
-            <li>7) Go to “Clients” in the left menu and click “Create client”.</li>
-            <li>8) Select “Web application” as the application type.</li>
-            <li>9) Name it (e.g., “assistant”).</li>
-            <li>10) Add this redirect URI: <span className="break-all font-mono text-xs">{redirectUri || 'https://your-domain.com/api/auth/google/callback'}</span></li>
-            <li>11) Click Create, then download the JSON from the popup.</li>
-            <li>12) Open “Audience” on the left, add your Google email as a user, and save.</li>
-            <li>13) Enable APIs: search and enable “Google Calendar API” and “Google Tasks API”.</li>
-            <li>14) Upload the downloaded JSON file above on this page.</li>
-          </ol>
-        </div>
+        {showFirstTimeSetup && (
+          <div className="rounded-3xl border border-border bg-card/70 p-6 shadow-lg backdrop-blur">
+            <h2 className="text-lg font-semibold text-foreground">How to get your Google OAuth JSON</h2>
+            <p className="mt-1 text-xs text-muted">
+              Use these steps to create the client and download the JSON before uploading it here.
+            </p>
+            <ol className="mt-4 space-y-3 text-sm text-foreground">
+              <li>1) Open <a className="underline" href="https://console.cloud.google.com" target="_blank" rel="noreferrer">Google Cloud Console</a>.</li>
+              <li>2) Create a new project (e.g., “assistant”).</li>
+              <li>3) Click “Get started” for OAuth consent.</li>
+              <li>4) Enter an app name (e.g., “assistant”) and select your email for user support.</li>
+              <li>5) Choose “External” as the audience (required for non-Workspace accounts).</li>
+              <li>6) Enter your email again when prompted, then finish.</li>
+              <li>7) Go to “Clients” in the left menu and click “Create client”.</li>
+              <li>8) Select “Web application” as the application type.</li>
+              <li>9) Name it (e.g., “assistant”).</li>
+              <li>10) Add this redirect URI: <span className="break-all font-mono text-xs">{redirectUri || 'https://your-domain.com/api/auth/google/callback'}</span></li>
+              <li>11) Click Create, then download the JSON from the popup.</li>
+              <li>12) Open “Audience” on the left, add your Google email as a user, and save.</li>
+              <li>13) Enable APIs: search and enable “Google Calendar API” and “Google Tasks API”.</li>
+              <li>14) Upload the downloaded JSON file above on this page.</li>
+            </ol>
+          </div>
+        )}
       </div>
     </div>
   );
