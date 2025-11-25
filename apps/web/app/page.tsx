@@ -376,6 +376,83 @@ function ToolsList({
   );
 }
 
+const prettyToolName = (n: any): string => {
+  if (typeof n === 'string' && n.trim().length > 0) return formatToolName(n);
+  return 'Tool';
+};
+
+const renderToolChips = (message: any) => {
+  const chips: Array<{ name: string; state: string }> = [];
+
+  // From live streaming tool invocations (useChat) - prioritize this
+  const inv = (message as any).toolInvocations;
+  if (Array.isArray(inv)) {
+    for (const i of inv) {
+      const name = i.toolName || i.name || 'tool';
+      const state = i.state || (i.result ? 'output-available' : 'running');
+      chips.push({ name, state });
+    }
+  }
+
+  // From persisted DB events (parts) - fallback
+  if (Array.isArray(message.parts)) {
+    for (const part of message.parts) {
+      if (typeof part === 'object' && part !== null) {
+        const typeStr = typeof part.type === 'string' ? part.type : '';
+        const looksLikeTool = /tool/i.test(typeStr) || typeof (part as any).toolName === 'string' || typeof (part as any).name === 'string';
+        if (looksLikeTool) {
+          const name = (part as any).toolName || (part as any).name || typeStr;
+          const state = (part as any).state || ((part as any).result ? 'output-available' : 'running');
+          if (!chips.some(c => c.name === name)) {
+            chips.push({ name: String(name), state: String(state) });
+          }
+        }
+      }
+    }
+  }
+
+  if (chips.length === 0) return null;
+
+  const Icon = ({ state }: { state: string }) => {
+    if (state === 'output-available') {
+      return (
+        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
+          <path d="M5 10.5 8.5 14 15 6.5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    }
+    if (state === 'output-error') {
+      return (
+        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
+          <path d="M6 6 14 14M14 6 6 14" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    }
+    // running
+    return (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 animate-spin text-foreground" fill="none" stroke="currentColor">
+        <circle className="opacity-20" cx="12" cy="12" r="9" strokeWidth="2" />
+        <path className="opacity-80" d="M21 12a9 9 0 0 1-9 9" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {chips.map((c, idx) => (
+        <span
+          key={`${c.name}-${idx}`}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-muted hover:text-foreground transition"
+          title={`${prettyToolName(c.name)} — ${c.state === 'output-available' ? 'Done' : c.state === 'output-error' ? 'Error' : 'Running'}`}
+        >
+          <Icon state={c.state} />
+          <span className="truncate max-w-[140px]">{prettyToolName(c.name)}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
 export default function Home() {
   const [userId, setUserId] = useState<string>('');
   const [conversations, setConversations] = useState<any[]>([]);
@@ -1680,7 +1757,7 @@ export default function Home() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
-  const handleOpenAttachment = async (attachment: any) => {
+  const handleOpenAttachment = useCallback(async (attachment: any) => {
     if (attachment?.is_encrypted) {
       let lastError: string | null = null;
       while (true) {
@@ -1717,84 +1794,8 @@ export default function Home() {
     } else {
       window.open(`/api/attachments/${attachment.id}`, '_blank', 'noopener,noreferrer');
     }
-  };
+  }, []);
 
-  const prettyToolName = (n: any): string => {
-    if (typeof n === 'string' && n.trim().length > 0) return formatToolName(n);
-    return 'Tool';
-  };
-
-  const renderToolChips = (message: any) => {
-    const chips: Array<{ name: string; state: string }> = [];
-
-    // From live streaming tool invocations (useChat) - prioritize this
-    const inv = (message as any).toolInvocations;
-    if (Array.isArray(inv)) {
-      for (const i of inv) {
-        const name = i.toolName || i.name || 'tool';
-        const state = i.state || (i.result ? 'output-available' : 'running');
-        chips.push({ name, state });
-      }
-    }
-
-    // From persisted DB events (parts) - fallback
-    if (Array.isArray(message.parts)) {
-      for (const part of message.parts) {
-        if (typeof part === 'object' && part !== null) {
-          const typeStr = typeof part.type === 'string' ? part.type : '';
-          const looksLikeTool = /tool/i.test(typeStr) || typeof (part as any).toolName === 'string' || typeof (part as any).name === 'string';
-          if (looksLikeTool) {
-            const name = (part as any).toolName || (part as any).name || typeStr;
-            const state = (part as any).state || ((part as any).result ? 'output-available' : 'running');
-            if (!chips.some(c => c.name === name)) {
-              chips.push({ name: String(name), state: String(state) });
-            }
-          }
-        }
-      }
-    }
-
-    if (chips.length === 0) return null;
-
-    const Icon = ({ state }: { state: string }) => {
-      if (state === 'output-available') {
-        return (
-          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
-            <path d="M5 10.5 8.5 14 15 6.5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        );
-      }
-      if (state === 'output-error') {
-        return (
-          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 text-foreground" fill="none" stroke="currentColor">
-            <path d="M6 6 14 14M14 6 6 14" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        );
-      }
-      // running
-      return (
-        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 animate-spin text-foreground" fill="none" stroke="currentColor">
-          <circle className="opacity-20" cx="12" cy="12" r="9" strokeWidth="2" />
-          <path className="opacity-80" d="M21 12a9 9 0 0 1-9 9" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    };
-
-    return (
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {chips.map((c, idx) => (
-          <span
-            key={`${c.name}-${idx}`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-muted hover:text-foreground transition"
-            title={`${prettyToolName(c.name)} — ${c.state === 'output-available' ? 'Done' : c.state === 'output-error' ? 'Error' : 'Running'}`}
-          >
-            <Icon state={c.state} />
-            <span className="truncate max-w-[140px]">{prettyToolName(c.name)}</span>
-          </span>
-        ))}
-  </div>
-    );
-  };
 
   return (
     <div className="relative flex h-[100dvh] overflow-hidden bg-background text-foreground">
@@ -1931,14 +1932,13 @@ export default function Home() {
               data={messages}
               computeItemKey={(idx, message) => message.id ?? `msg-${idx}`}
               followOutput={shouldFollowOutput}
-              overscan={800}
+              overscan={400}
               atBottomThreshold={200}
               atBottomStateChange={handleAtBottomStateChange}
               isScrolling={handleIsScrolling}
               initialTopMostItemIndex={messages.length - 1}
-              increaseViewportBy={{ top: 800, bottom: 800 }}
+              increaseViewportBy={{ top: 400, bottom: 400 }}
               defaultItemHeight={120}
-              skipAnimationFrameInResizeObserver
               components={virtuosoComponents}
               itemContent={(idx, message: any) => {
                 const isUser = message.role === 'user';
