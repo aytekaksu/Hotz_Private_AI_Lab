@@ -2066,13 +2066,10 @@ export default function Home() {
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:py-2 sm:text-sm"
                   >
                     {isLoading ? (
-                      <>
-                        <span className="relative inline-flex h-2 w-2">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-foreground/60" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-foreground" />
-                        </span>
-                        Sending…
-                      </>
+                      <span className="inline-flex h-5 w-5 items-center justify-center">
+                        <span className="h-4 w-4 animate-spin rounded-full border-[1.5px] border-background/40 border-t-background" />
+                        <span className="sr-only">Sending</span>
+                      </span>
                     ) : (
                       <>
                         Send
