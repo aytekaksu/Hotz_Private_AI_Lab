@@ -140,6 +140,13 @@ export default function LoginPage() {
   const layoutClass = hasInstructions
     ? 'grid w-full max-w-5xl grid-cols-1 gap-8 md:grid-cols-2'
     : 'w-full max-w-xl';
+  const heroAlignClass = hasInstructions ? 'text-center md:text-left' : 'text-center';
+  const logoWrapperClass = hasInstructions
+    ? 'mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-card/80 shadow-lg md:mx-0'
+    : 'mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-card/80 shadow-lg';
+  const footerAlignClass = hasInstructions
+    ? 'mt-6 text-center text-xs text-muted md:text-left'
+    : 'mt-6 text-center text-xs text-muted';
   const canLogin = authStatus?.googleClientConfigured;
 
   return (
@@ -147,8 +154,8 @@ export default function LoginPage() {
       <div className={layoutClass}>
         <div className="w-full">
           {/* Logo/Title */}
-          <div className="mb-8 text-center md:text-left">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-card/80 shadow-lg md:mx-0">
+          <div className={`mb-8 ${heroAlignClass}`}>
+            <div className={logoWrapperClass}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-8 w-8 text-accent">
                 <path
                   d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
@@ -287,7 +294,7 @@ export default function LoginPage() {
           </div>
 
           {/* Footer */}
-          <p className="mt-6 text-center text-xs text-muted md:text-left">
+          <p className={footerAlignClass}>
             Single-user private workspace. Only the authorized Google account can access this app.
           </p>
         </div>
