@@ -22,7 +22,7 @@ import type { ToolDefinition } from '@/components/tool-dialog';
 import { FileManager, type ManagedFile } from '@/components/file-manager';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Virtuoso } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { uploadWithProgress } from '@/lib/client/upload';
 
 const TOOL_CATEGORIES = ['Google Calendar', 'Google Tasks', 'Notion'] as const;
@@ -342,7 +342,37 @@ export default function Home() {
   const fileManagerPopoverRef = useRef<HTMLDivElement>(null);
   const fileManagerButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarListRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const isAtBottomRef = useRef(true);
+  const userScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+    isAtBottomRef.current = atBottom;
+  }, []);
+
+  const handleIsScrolling = useCallback((scrolling: boolean) => {
+    if (scrolling) {
+      userScrollingRef.current = true;
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    } else {
+      // Delay resetting to allow followOutput to stabilize
+      scrollTimeoutRef.current = setTimeout(() => {
+        userScrollingRef.current = false;
+      }, 150);
+    }
+  }, []);
+
+  // Determine if we should follow output
+  const shouldFollowOutput = useCallback(() => {
+    // Don't follow if user is actively scrolling away from bottom
+    if (userScrollingRef.current && !isAtBottomRef.current) {
+      return false;
+    }
+    return isAtBottomRef.current ? 'smooth' : false;
+  }, []);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -1808,14 +1838,18 @@ export default function Home() {
             </div>
           ) : (
             <Virtuoso
+              ref={virtuosoRef}
               key={currentConversationId ?? 'new'}
               style={{ height: '100%', width: '100%' }}
               data={messages}
-              followOutput={isAtBottom ? 'smooth' : false}
+              followOutput={shouldFollowOutput}
               overscan={400}
               atBottomThreshold={200}
-              atBottomStateChange={setIsAtBottom}
+              atBottomStateChange={handleAtBottomStateChange}
+              isScrolling={handleIsScrolling}
               initialTopMostItemIndex={messages.length - 1}
+              increaseViewportBy={{ top: 600, bottom: 600 }}
+              defaultItemHeight={120}
               components={virtuosoComponents}
               itemContent={(idx, message: any) => {
                 const isUser = message.role === 'user';
