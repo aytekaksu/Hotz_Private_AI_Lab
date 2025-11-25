@@ -363,7 +363,7 @@ export default function SettingsPage() {
         const modelRes = await fetch(`/api/settings/default-model?userId=${uid}`);
         if (modelRes.ok) {
           const m = await modelRes.json();
-          const allowedModels = ['anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5'];
+          const allowedModels = ['anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5', 'anthropic/claude-opus-4.5'];
           setDefaultModel(allowedModels.includes(m.model) ? m.model : 'anthropic/claude-haiku-4.5');
           const rv = (m.routingVariant || 'floor').toLowerCase();
           setRoutingVariant(rv === 'nitro' ? 'nitro' : rv === '' ? '' : 'floor');
@@ -1038,14 +1038,15 @@ export default function SettingsPage() {
                   <p className="text-xs text-amber-500">Add an Anthropic API key to enable the Anthropic provider toggle.</p>
                 )}
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-xs text-muted">Default model</span>
+                  <span className="text-xs text-muted">Selected model</span>
                   <select
                     value={defaultModel}
                     onChange={(event) => setDefaultModel(event.target.value)}
                     className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground"
                   >
-                    <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5</option>
-                    <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
+                    <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5 — smart enough</option>
+                    <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5 — smart</option>
+                    <option value="anthropic/claude-opus-4.5">Claude Opus 4.5 — smartest</option>
                   </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
