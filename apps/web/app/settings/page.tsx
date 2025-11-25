@@ -447,64 +447,23 @@ export default function SettingsPage() {
       setInitError(null);
       setIsLoading(true);
 
-      const createDefaultUser = async (): Promise<string | null> => {
-        try {
-          const response = await fetch('/api/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: 'user@assistant.local' }),
-          });
-
-          if (!response.ok) {
-            console.error('Failed to create default user:', response.statusText);
-            return null;
-          }
-
-          const data = await response.json();
-          const newUserId = typeof data.user?.id === 'string' ? data.user.id : null;
-          if (newUserId) {
-            localStorage.setItem('userId', newUserId);
-          }
-          return newUserId;
-        } catch (error) {
-          console.error('Failed to create default user:', error);
-          return null;
-        }
-      };
-
-      let storedUserId: string | null = null;
       try {
-        storedUserId = localStorage.getItem('userId');
-      } catch (error) {
-        console.error('Unable to access localStorage:', error);
-      }
-
-      let userId = storedUserId;
-
-      if (!userId) {
-        userId = await createDefaultUser();
-      } else {
-        try {
-          const response = await fetch(`/api/users/${userId}`);
-          if (!response.ok) {
-            localStorage.removeItem('userId');
-            userId = await createDefaultUser();
-          }
-        } catch (error) {
-          console.error('Error verifying user:', error);
-          localStorage.removeItem('userId');
-          userId = await createDefaultUser();
+        // Fetch the authenticated user from the session
+        const response = await fetch('/api/auth/me');
+        const data = await response.json();
+        
+        if (data.authenticated && data.user?.id) {
+          setUserId(data.user.id);
+          await loadSettings(data.user.id);
+        } else {
+          // Not authenticated - redirect to login
+          window.location.href = '/login';
         }
-      }
-
-      if (!userId) {
-        setInitError('Unable to initialize the workspace. Please reload the page.');
+      } catch (error) {
+        console.error('Error fetching session:', error);
+        setInitError('Unable to verify authentication. Please reload the page.');
         setIsLoading(false);
-        return;
       }
-
-      setUserId(userId);
-      await loadSettings(userId);
     };
 
     initSettings();
@@ -582,13 +541,14 @@ export default function SettingsPage() {
       setTimeout(() => setGoogleClientFeedback(null), 4000);
       return;
     }
-    window.location.href = `/api/auth/google?userId=${userId}`;
+    // Use reconnect mode since user is already logged in
+    window.location.href = `/api/auth/google?mode=reconnect`;
   };
 
   const disconnectGoogle = async () => {
     if (!confirm('Disconnect Google? Calendar and Tasks features will be disabled.')) return;
     try {
-      const response = await fetch(`/api/auth/google?userId=${userId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/auth/google`, { method: 'DELETE' });
       if (response.ok) {
         setGoogleConnected(false);
         setGoogleEmail(null);
@@ -748,7 +708,7 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-5xl px-6 py-12 md:px-10">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
           <div className="min-w-0 flex-1">
-            <div className="mt-2 flex items-center">
+            <div className="mt-2 flex items-center gap-3">
               <button
                 onClick={() => router.push('/')}
                 className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-base text-foreground/85 transition hover:bg-card/70 hover:text-foreground"
@@ -763,7 +723,22 @@ export default function SettingsPage() {
             <h1 className="mt-3 truncate text-2xl font-semibold">Settings</h1>
             <p className="mt-2 text-sm text-muted">Manage API keys, connected services, and workspace preferences.</p>
           </div>
-          {/* Theme toggle removed */}
+          <button
+            onClick={async () => {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/login';
+              } catch (error) {
+                console.error('Logout failed:', error);
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-muted transition hover:border-red-400/50 hover:text-red-400"
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
+              <path d="M13.333 14.167 17.5 10m0 0-4.167-4.167M17.5 10h-10m0-7.5H5A1.667 1.667 0 0 0 3.333 4.167v11.666A1.667 1.667 0 0 0 5 17.5h2.5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Logout
+          </button>
         </header>
 
         <div className="mt-10 flex flex-col gap-6">

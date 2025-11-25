@@ -1,11 +1,17 @@
 import { NextRequest } from 'next/server';
 import { createAttachmentFolder, deleteAttachmentFolder, normalizeFolderPath, renameAttachmentFolder } from '@/lib/db';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const body = await req.json();
     const { name, parentPath } = body || {};
     if (typeof name !== 'string' || !name.trim()) {
@@ -23,6 +29,11 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const searchParams = req.nextUrl.searchParams;
     const body = req.method === 'DELETE' ? await req.text() : null;
     let path = searchParams.get('path') || '';
@@ -47,6 +58,11 @@ export async function DELETE(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const body = await req.json();
     const { path, name } = body || {};
     if (!path || typeof name !== 'string' || !name.trim()) {

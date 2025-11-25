@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, convertToModelMessages, stepCountIs, tool as defineTool, zodSchema } from 'ai';
-import { getUserById, createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById, promoteAttachmentToLibrary, getAgentDefaultAttachments } from '@/lib/db';
+import { createMessage, getMessagesByConversationId, createConversationWithAgent, updateConversationTitle, getAttachmentsByIds, setAttachmentMessage, getUserOpenRouterKey, initializeDefaultTools, getConversationTools, getOAuthCredential, initializeToolsFromAgent, getAgentById, getAgentTools, getUserAnthropicKey, getActiveAIProvider, getConversationById, promoteAttachmentToLibrary, getAgentDefaultAttachments } from '@/lib/db';
 import { tools, toolMetadata } from '@/lib/tools/definitions';
 import { executeTool } from '@/lib/tools/executor';
 import type { ToolName } from '@/lib/tools/definitions';
@@ -10,6 +10,7 @@ import { assertBunRuntime } from '@/lib/utils/runtime';
 import sharp from 'sharp';
 import { AttachmentAccessError, readAttachmentBytes } from '@/lib/files/attachment-access';
 import { extractTextFromBytes } from '@/lib/files/text-extraction';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -166,7 +167,13 @@ const toDataUrlWithResize = async (
 
 export async function POST(req: Request) {
   try {
-    const { messages, conversationId, userId, attachments, userTimezone, agentId } = await req.json();
+    // Validate session first
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return new Response('Authentication required', { status: 401 });
+    }
+    
+    const { messages, conversationId, attachments, userTimezone, agentId } = await req.json();
     const headerTimezone = req.headers.get('X-User-Timezone');
     const incomingMessages: IncomingMessage[] = Array.isArray(messages) ? messages : [];
     const normalizedMessages: UIPartsMessage[] = incomingMessages.map(message => ({
@@ -175,15 +182,9 @@ export async function POST(req: Request) {
       metadata: message.metadata,
     }));
     
-    if (!userId) {
-      return new Response('User ID required', { status: 401 });
-    }
-    
-    // Get user and validate OpenRouter API key
-    const user = getUserById(userId);
-    if (!user) {
-      return new Response('User not found', { status: 404 });
-    }
+    // Use the session user instead of trusting request body
+    const user = sessionUser;
+    const userId = user.id;
     
     const activeProvider = getActiveAIProvider(userId);
     let openrouterApiKey: string | null = null;

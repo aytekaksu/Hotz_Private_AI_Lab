@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getConversationById, getConversationTools, setConversationToolEnabled, getOAuthCredential } from '@/lib/db';
 import { tools, toolMetadata, type ToolName } from '@/lib/tools/definitions';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -8,9 +9,10 @@ type AccessResult =
   | { response: Response }
   | { userId: string; conversationId: string };
 
-const ensureConversationAccess = (conversationId: string, userId: string | null): AccessResult => {
-  if (!userId) {
-    return { response: Response.json({ error: 'User ID required' }, { status: 400 }) };
+const ensureConversationAccess = async (conversationId: string): Promise<AccessResult> => {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    return { response: Response.json({ error: 'Authentication required' }, { status: 401 }) };
   }
 
   const conversation = getConversationById(conversationId);
@@ -18,11 +20,11 @@ const ensureConversationAccess = (conversationId: string, userId: string | null)
     return { response: Response.json({ error: 'Conversation not found' }, { status: 404 }) };
   }
 
-  if (conversation.user_id !== userId) {
-    return { response: Response.json({ error: 'Unauthorized' }, { status: 403 }) };
+  if (conversation.user_id !== sessionUser.id) {
+    return { response: Response.json({ error: 'Conversation not found' }, { status: 404 }) };
   }
 
-  return { userId, conversationId };
+  return { userId: sessionUser.id, conversationId };
 };
 
 const authErrorMessage = (provider: string | null | undefined) =>
@@ -51,7 +53,7 @@ const isProviderConnected = (
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const result = ensureConversationAccess(params.id, req.nextUrl.searchParams.get('userId'));
+    const result = await ensureConversationAccess(params.id);
     if ('response' in result) return result.response;
 
     const enabledMap = new Map(getConversationTools(result.conversationId).map((t) => [t.tool_name, t.enabled]));
@@ -84,10 +86,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const result = await ensureConversationAccess(params.id);
+    if ('response' in result) return result.response;
+
     const body = await req.json();
     const { toolName, enabled } = body ?? {};
-    const result = ensureConversationAccess(params.id, body?.userId ?? null);
-    if ('response' in result) return result.response;
 
     if (!toolName || typeof enabled !== 'boolean') {
       return Response.json({ error: 'Tool name and enabled status required' }, { status: 400 });

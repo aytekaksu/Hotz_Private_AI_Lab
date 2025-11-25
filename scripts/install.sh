@@ -3,12 +3,15 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: install.sh <domain> [acme-email]
+Usage: install.sh <domain> <admin-email>
+
+Arguments:
+  domain        The domain where the app will be deployed (e.g. https://ai.example.com)
+  admin-email   The Google email address authorized to use the app (also used for ACME TLS cert)
 
 Environment variables:
   GITHUB_USER   GitHub username that can access the private repo (required)
   GITHUB_PAT    Personal access token with repo scope (required)
-  ACME_EMAIL    Optional override for TLS provisioning email (defaults to ops@example.com)
   APP_DIR       Target install directory (default: ~/Hotz_Private_AI_Lab)
   REPO_BRANCH   Git branch to clone (default: master)
 EOF
@@ -19,17 +22,23 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-if [[ $# -lt 1 ]]; then
+if [[ $# -lt 2 ]]; then
+  echo "[install] ERROR: Both <domain> and <admin-email> are required." >&2
   usage
   exit 1
 fi
 
 DOMAIN="${1%/}"
-DEFAULT_ACME_EMAIL="${ACME_EMAIL:-ops@example.com}"
-ACME_EMAIL_INPUT="${2:-$DEFAULT_ACME_EMAIL}"
-if [[ -z "${2:-}" && -z "${ACME_EMAIL:-}" ]]; then
-  echo "[install] No ACME email provided; using placeholder ${DEFAULT_ACME_EMAIL}" >&2
+ADMIN_EMAIL="${2}"
+
+# Validate email format (simple check)
+if [[ ! "$ADMIN_EMAIL" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+  echo "[install] ERROR: Invalid email format: $ADMIN_EMAIL" >&2
+  exit 1
 fi
+
+# Use admin email for ACME as well
+ACME_EMAIL_INPUT="$ADMIN_EMAIL"
 
 if [[ ! "$DOMAIN" =~ ^https?:// ]]; then
   DOMAIN="https://${DOMAIN}"
@@ -119,6 +128,7 @@ ensure_env_var NEXTAUTH_URL "$DOMAIN"
 ensure_env_var APP_PUBLIC_URL "$DOMAIN"
 ensure_env_var INTERNAL_DOMAIN "$DOMAIN_HOST"
 ensure_env_var ACME_EMAIL "$ACME_EMAIL_INPUT"
+ensure_env_var AUTHORIZED_GOOGLE_EMAIL "$ADMIN_EMAIL"
 ensure_env_var HEALTHCHECK_URL "${DOMAIN%/}/api/health"
 
 if ! grep -q '^APP_ENCRYPTION_KEY=' .env || [[ -z "$(grep -m1 '^APP_ENCRYPTION_KEY=' .env | cut -d= -f2-)" ]]; then

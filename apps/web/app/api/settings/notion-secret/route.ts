@@ -1,13 +1,11 @@
-import { NextRequest } from 'next/server';
 import { deleteOAuthCredential, getDecryptedOAuthCredential, storeOAuthCredential } from '@/lib/db';
-import { route, requireUser, requireString, readJson, suffix } from '@/lib/api';
+import { protectedRoute, requireString, readJson, suffix } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 const secretSuffix = (value: string | null | undefined) => suffix(value, 6);
 
-export const GET = route(async (req: NextRequest) => {
-  const user = requireUser(req.nextUrl.searchParams.get('userId'));
+export const GET = protectedRoute(async (_req, user) => {
   const credential = await getDecryptedOAuthCredential(user.id, 'notion');
   return {
     hasSecret: !!credential,
@@ -15,9 +13,8 @@ export const GET = route(async (req: NextRequest) => {
   };
 });
 
-export const POST = route(async (req: NextRequest) => {
-  const body = await readJson<{ userId: string; secret: string }>(req);
-  const user = requireUser(body.userId);
+export const POST = protectedRoute(async (req, user) => {
+  const body = await readJson<{ secret: string }>(req);
   const secret = requireString(body.secret, 'Secret');
   await storeOAuthCredential(user.id, 'notion', secret);
   return {
@@ -27,9 +24,7 @@ export const POST = route(async (req: NextRequest) => {
   };
 });
 
-export const DELETE = route(async (req: NextRequest) => {
-  const body = await readJson<{ userId: string }>(req);
-  const user = requireUser(body.userId);
+export const DELETE = protectedRoute(async (_req, user) => {
   deleteOAuthCredential(user.id, 'notion');
   return {
     success: true,

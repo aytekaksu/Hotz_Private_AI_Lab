@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getAttachmentById } from '@/lib/db';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +9,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const attachmentId = params.id;
     
     const attachment = getAttachmentById(attachmentId);

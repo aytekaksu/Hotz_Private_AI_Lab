@@ -1,11 +1,17 @@
 import { NextRequest } from 'next/server';
 import { getAttachmentById } from '@/lib/db';
 import { AttachmentAccessError, readAttachmentBytes } from '@/lib/files/attachment-access';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const attachment = getAttachmentById(params.id);
     if (!attachment) {
       return Response.json({ error: 'Attachment not found' }, { status: 404 });

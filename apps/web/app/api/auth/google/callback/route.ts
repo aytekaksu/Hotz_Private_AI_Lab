@@ -1,7 +1,14 @@
 import { NextRequest } from 'next/server';
 import { google } from 'googleapis';
-import { storeOAuthCredential } from '@/lib/db';
+import {
+  storeOAuthCredential,
+  getUserByEmail,
+  createUser,
+  setFirstLoginCompleted,
+} from '@/lib/db';
 import { createBaseGoogleOAuth2Client } from '@/lib/google-auth';
+import { isEmailAuthorized } from '@/lib/auth/config';
+import { createSession, getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -30,7 +37,7 @@ const loadOAuthClient = async (redirectBase?: string) => {
   }
 };
 
-const fetchAccountEmail = async (oauth2Client: any) => {
+const fetchAccountEmail = async (oauth2Client: any): Promise<string | null> => {
   try {
     const oauth2 = google.oauth2('v2');
     const userinfo = await oauth2.userinfo.get({ auth: oauth2Client });
@@ -43,17 +50,32 @@ const fetchAccountEmail = async (oauth2Client: any) => {
 
 export async function GET(req: NextRequest) {
   const baseUrl = resolveBaseUrl(req);
+  const loginUrl = `${baseUrl}/login`;
+  const homeUrl = `${baseUrl}/`;
   const settingsUrl = `${baseUrl}/settings`;
-  const redirect = (query: string) => Response.redirect(`${settingsUrl}?${query}`);
+  
+  const redirectToLogin = (query: string) => Response.redirect(`${loginUrl}?${query}`);
+  const redirectToSettings = (query: string) => Response.redirect(`${settingsUrl}?${query}`);
+  
   const params = req.nextUrl.searchParams;
+  const state = params.get('state') || 'login';
+  const isLoginFlow = state === 'login';
+  const isReconnectFlow = state === 'reconnect';
+  
+  // Handle OAuth errors
   if (params.get('error')) {
-    return redirect('error=google_auth_failed');
+    if (isLoginFlow) {
+      return redirectToLogin('error=google_auth_failed');
+    }
+    return redirectToSettings('error=google_auth_failed');
   }
 
   const code = params.get('code');
-  const userId = params.get('state');
-  if (!code || !userId) {
-    return redirect('error=invalid_callback');
+  if (!code) {
+    if (isLoginFlow) {
+      return redirectToLogin('error=invalid_callback');
+    }
+    return redirectToSettings('error=invalid_callback');
   }
 
   try {
@@ -69,25 +91,86 @@ export async function GET(req: NextRequest) {
     });
 
     const accountEmail = await fetchAccountEmail(oauth2Client);
-    const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
+    if (!accountEmail) {
+      console.error('Could not retrieve email from Google account');
+      if (isLoginFlow) {
+        return redirectToLogin('error=email_not_available');
+      }
+      return redirectToSettings('error=email_not_available');
+    }
 
-    await storeOAuthCredential(
-      userId,
-      'google',
-      tokens.access_token,
-      tokens.refresh_token || undefined,
-      tokens.scope || undefined,
-      expiresAt,
-      accountEmail
-    );
+    // For login flow: verify email is authorized
+    if (isLoginFlow) {
+      if (!isEmailAuthorized(accountEmail)) {
+        console.warn(`Unauthorized login attempt from: ${accountEmail}`);
+        return redirectToLogin('error=unauthorized_email');
+      }
 
-    return redirect('success=google_connected');
+      // Get or create the user
+      let user = getUserByEmail(accountEmail);
+      if (!user) {
+        user = createUser(accountEmail);
+      }
+
+      // Store OAuth credentials for calendar/tasks integration
+      const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
+      await storeOAuthCredential(
+        user.id,
+        'google',
+        tokens.access_token,
+        tokens.refresh_token || undefined,
+        tokens.scope || undefined,
+        expiresAt,
+        accountEmail
+      );
+
+      // Mark first login as completed
+      setFirstLoginCompleted();
+
+      // Create session
+      await createSession(user.id);
+
+      // Redirect to home
+      return Response.redirect(homeUrl);
+    }
+
+    // For reconnect flow: must be already logged in
+    if (isReconnectFlow) {
+      const sessionUser = await getSessionUser();
+      if (!sessionUser) {
+        return redirectToLogin('error=session_expired');
+      }
+
+      // Verify the reconnected account matches the session user's email
+      if (accountEmail.toLowerCase() !== sessionUser.email.toLowerCase()) {
+        return redirectToSettings('error=email_mismatch');
+      }
+
+      const expiresAt = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
+      await storeOAuthCredential(
+        sessionUser.id,
+        'google',
+        tokens.access_token,
+        tokens.refresh_token || undefined,
+        tokens.scope || undefined,
+        expiresAt,
+        accountEmail
+      );
+
+      return redirectToSettings('success=google_connected');
+    }
+
+    // Unknown state - redirect to login
+    return redirectToLogin('error=invalid_state');
   } catch (error) {
-    const code =
+    const errorCode =
       error instanceof Error && error.message === 'GOOGLE_CLIENT_NOT_CONFIGURED'
         ? 'error=google_client_not_configured'
         : 'error=google_token_exchange_failed';
     console.error('Error in Google OAuth callback:', error);
-    return redirect(code);
+    if (isLoginFlow) {
+      return redirectToLogin(errorCode);
+    }
+    return redirectToSettings(errorCode);
   }
 }

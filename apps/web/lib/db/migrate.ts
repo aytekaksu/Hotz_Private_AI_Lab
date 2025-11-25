@@ -335,6 +335,34 @@ const migrations = [
     setVersion(12);
     console.log('✓ Migration 12 completed');
   },
+
+  // Migration 13: Auth sessions table for single-user Google login
+  function migration13() {
+    console.log('Running migration 13: Auth sessions table');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);');
+    setVersion(13);
+    console.log('✓ Migration 13 completed');
+  },
+
+  // Migration 14: First login completed flag in app_settings
+  function migration14() {
+    console.log('Running migration 14: First login completed flag');
+    // The app_settings table already exists from migration 8
+    // We just ensure the key can be used; no schema change needed
+    setVersion(14);
+    console.log('✓ Migration 14 completed');
+  },
 ];
 
 // Run migrations

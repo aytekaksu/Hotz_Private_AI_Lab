@@ -1,30 +1,17 @@
 import { redirect } from 'next/navigation';
-import { getUserByEmail, createUser, getConversationsByUserId, getMessagesByConversationId, createConversationWithAgent } from '@/lib/db';
+import { getConversationsByUserId, getMessagesByConversationId, createConversationWithAgent } from '@/lib/db';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export default async function Forward() {
   try {
-    // Resolve or create the default local user so Back to home always leads to a chat
-    const email = 'user@assistant.local';
-    let user = getUserByEmail(email);
+    // Get the authenticated user from session
+    const user = await getSessionUser();
     if (!user) {
-      try {
-        user = createUser(email);
-      } catch (e) {
-        console.error('[forward] createUser failed:', e);
-        // Handle potential race: user may have been created concurrently
-        try {
-          user = getUserByEmail(email);
-        } catch (err) {
-          console.error('[forward] getUserByEmail after create failure failed:', err);
-        }
-        if (!user) {
-          // As a last resort, send to settings
-          return redirect('/settings');
-        }
-      }
+      // Not authenticated - redirect to login
+      return redirect('/login');
     }
 
     // Find latest conversation; reuse if empty non-agent, else create new
@@ -66,7 +53,7 @@ export default async function Forward() {
       throw e;
     }
     console.error('[forward] unhandled error:', e);
-    // Last-resort fallback to settings page
-    return redirect('/settings');
+    // Last-resort fallback to login page
+    return redirect('/login');
   }
 }

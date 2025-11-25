@@ -406,45 +406,21 @@ export default function Home() {
 
   useEffect(() => {
     const initUser = async () => {
-      let storedUserId: string | null = typeof window !== 'undefined' ? localStorage.getItem('userId') : null;
-
-      if (storedUserId) {
-        try {
-          const response = await fetch(`/api/users/${storedUserId}`);
-          if (!response.ok) {
-            localStorage.removeItem('userId');
-            storedUserId = null;
-          }
-        } catch (error) {
-          console.error('Error verifying user:', error);
-          localStorage.removeItem('userId');
-          storedUserId = null;
+      try {
+        // Fetch the authenticated user from the session
+        const response = await fetch('/api/auth/me');
+        const data = await response.json();
+        
+        if (data.authenticated && data.user?.id) {
+          setUserId(data.user.id);
+        } else {
+          // Not authenticated - redirect to login
+          // This shouldn't happen as middleware guards routes, but handle it gracefully
+          window.location.href = '/login';
         }
-      }
-
-      if (!storedUserId) {
-        const email = 'user@assistant.local';
-        try {
-          const response = await fetch('/api/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
-          });
-          const data = await response.json();
-          const newUserId = typeof data.user?.id === 'string' ? data.user.id : null;
-          if (newUserId) {
-            localStorage.setItem('userId', newUserId);
-            storedUserId = newUserId;
-          } else {
-            console.error('User creation response missing id', data);
-          }
-        } catch (error) {
-          console.error('Failed to create user:', error);
-        }
-      }
-
-      if (storedUserId) {
-        setUserId(storedUserId);
+      } catch (error) {
+        console.error('Error fetching session:', error);
+        window.location.href = '/login';
       }
     };
 

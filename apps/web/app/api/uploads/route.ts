@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { hashPassword } from '@/lib/encryption';
 import { createEncryptedZip } from '@/lib/files/encrypted-zip';
 import { extractTextFromBytes, shouldStreamTextContent } from '@/lib/files/text-extraction';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -171,6 +172,12 @@ const enforceTokenLimit = (text: string | null | undefined, file: File) => {
 
 export async function POST(req: NextRequest) {
   try {
+    // Validate session
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const formData = await req.formData();
     const files = formData.getAll('files') as File[];
     const folderInput = formData.get('folderPath');

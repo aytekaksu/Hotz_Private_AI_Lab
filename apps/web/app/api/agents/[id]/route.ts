@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getAgentById, updateAgent, deleteAgent, getAttachmentById } from '@/lib/db';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,8 +10,19 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const agent = getAgentById(params.id);
     if (!agent) return Response.json({ error: 'Agent not found' }, { status: 404 });
+    
+    // Verify the agent belongs to the authenticated user
+    if (agent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     return Response.json({ agent });
   } catch (error) {
     console.error('Error fetching agent:', error);
@@ -20,6 +32,17 @@ export async function GET(
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const existingAgent = getAgentById(params.id);
+    if (!existingAgent || existingAgent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     const body = await req.json();
     const { name, slug, extraSystemPrompt, overrideSystemPrompt, instructionsAttachmentId, instructionsAttachmentName } = body || {};
     if (instructionsAttachmentId) {
@@ -46,6 +69,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const existingAgent = getAgentById(params.id);
+    if (!existingAgent || existingAgent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     deleteAgent(params.id);
     return Response.json({ success: true });
   } catch (error) {

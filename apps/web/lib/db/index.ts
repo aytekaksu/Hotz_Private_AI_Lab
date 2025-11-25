@@ -1208,3 +1208,74 @@ export function createConversationWithAgent(userId: string, title: string, agent
   stmt.run(id, userId, title, agentId || null);
   return getConversationById(id)!;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth Sessions
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuthSession {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: string;
+  expires_at: string;
+}
+
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export function createAuthSession(userId: string, tokenHash: string): AuthSession {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_DURATION_MS);
+  const stmt = db.prepare(`
+    INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, userId, tokenHash, now.toISOString(), expiresAt.toISOString());
+  return { id, user_id: userId, token_hash: tokenHash, created_at: now.toISOString(), expires_at: expiresAt.toISOString() };
+}
+
+export function getAuthSessionByTokenHash(tokenHash: string): AuthSession | null {
+  const db = getDb();
+  const stmt = db.prepare('SELECT * FROM auth_sessions WHERE token_hash = ?');
+  const row = stmt.get(tokenHash) as AuthSession | undefined;
+  if (!row) return null;
+  // Check expiry
+  if (new Date(row.expires_at) < new Date()) {
+    deleteAuthSession(row.id);
+    return null;
+  }
+  return row;
+}
+
+export function deleteAuthSession(sessionId: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM auth_sessions WHERE id = ?').run(sessionId);
+}
+
+export function deleteAuthSessionsByUser(userId: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
+}
+
+export function cleanExpiredSessions(): number {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM auth_sessions WHERE expires_at < datetime(\'now\')').run();
+  return result.changes;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// First Login Completed Flag
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FIRST_LOGIN_COMPLETED_KEY = 'first_login_completed';
+
+export function isFirstLoginCompleted(): boolean {
+  const row = getAppSettingRow(FIRST_LOGIN_COMPLETED_KEY);
+  return row?.value === 'true';
+}
+
+export function setFirstLoginCompleted(): void {
+  upsertAppSetting(FIRST_LOGIN_COMPLETED_KEY, 'true');
+}

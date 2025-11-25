@@ -1,22 +1,31 @@
 import { NextRequest } from 'next/server';
-import { getAgentTools, setAgentToolEnabled, getOAuthCredential } from '@/lib/db';
+import { getAgentTools, setAgentToolEnabled, getOAuthCredential, getAgentById } from '@/lib/db';
 import { toolMetadata } from '@/lib/tools/definitions';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const searchParams = req.nextUrl.searchParams;
-    const userId = searchParams.get('userId');
-    if (!userId) return Response.json({ error: 'User ID required' }, { status: 400 });
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const agent = getAgentById(params.id);
+    if (!agent || agent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     const stored = getAgentTools(params.id);
     const storedMap = new Map(stored.map((t) => [t.tool_name, t.enabled]));
     const entries = Object.entries(toolMetadata as any);
     const tools = entries.map(([toolName, meta]: any) => {
       const requiresAuth = !!meta?.requiresAuth;
       const authProvider = meta?.authProvider || null;
-      const authConnected = authProvider ? !!getOAuthCredential(userId, authProvider) : true;
+      const authConnected = authProvider ? !!getOAuthCredential(sessionUser.id, authProvider) : true;
       const category = meta?.category || 'Other';
       // Default enabled logic: system date/time is enabled by default unless explicitly disabled
       const defaultEnabled = toolName === 'get_current_datetime' ? true : false;
@@ -41,6 +50,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const agent = getAgentById(params.id);
+    if (!agent || agent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     const body = await req.json();
     const { toolName, enabled } = body || {};
     if (!toolName || typeof enabled !== 'boolean') {

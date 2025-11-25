@@ -1,12 +1,24 @@
 import { NextRequest } from 'next/server';
-import { getAgentDefaultAttachments, setAgentDefaultAttachments, getAttachmentsByIds } from '@/lib/db';
+import { getAgentDefaultAttachments, setAgentDefaultAttachments, getAttachmentsByIds, getAgentById } from '@/lib/db';
 import { sanitizeAttachments } from '@/lib/files/sanitize-attachment';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const agent = getAgentById(params.id);
+    if (!agent || agent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     const attachments = sanitizeAttachments(getAgentDefaultAttachments(params.id));
     return Response.json({ attachments });
   } catch (error) {
@@ -17,6 +29,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the agent belongs to the authenticated user
+    const agent = getAgentById(params.id);
+    if (!agent || agent.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Agent not found' }, { status: 404 });
+    }
+    
     const body = await req.json();
     const { attachmentIds } = body || {};
     const ids = Array.isArray(attachmentIds) ? attachmentIds.filter((v) => typeof v === 'string') : [];

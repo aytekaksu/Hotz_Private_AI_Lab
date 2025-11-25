@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getConversationById, getMessagesByConversationId, deleteConversation, getAttachmentsByMessageId } from '@/lib/db';
 import { sanitizeAttachments } from '@/lib/files/sanitize-attachment';
+import { getSessionUser } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
@@ -9,10 +10,21 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Validate session
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const conversationId = params.id;
     
     const conversation = getConversationById(conversationId);
     if (!conversation) {
+      return Response.json({ error: 'Conversation not found' }, { status: 404 });
+    }
+    
+    // Verify the conversation belongs to the authenticated user
+    if (conversation.user_id !== sessionUser.id) {
       return Response.json({ error: 'Conversation not found' }, { status: 404 });
     }
     
@@ -53,7 +65,19 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Validate session
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
     const conversationId = params.id;
+    
+    // Verify the conversation belongs to the authenticated user
+    const conversation = getConversationById(conversationId);
+    if (!conversation || conversation.user_id !== sessionUser.id) {
+      return Response.json({ error: 'Conversation not found' }, { status: 404 });
+    }
     
     deleteConversation(conversationId);
     

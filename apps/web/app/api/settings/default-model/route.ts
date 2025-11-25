@@ -1,14 +1,12 @@
-import { NextRequest } from 'next/server';
 import { getUserModelDefaults, updateUserModelDefaults } from '@/lib/db';
-import { route, requireUser, requireString, readJson } from '@/lib/api';
+import { protectedRoute, requireString, readJson } from '@/lib/api';
 
 export const runtime = 'nodejs';
 
 const DEFAULT_MODEL = 'anthropic/claude-haiku-4.5';
 const DEFAULT_VARIANT = 'floor';
 
-export const GET = route((req: NextRequest) => {
-  const user = requireUser(req.nextUrl.searchParams.get('userId'));
+export const GET = protectedRoute(async (_req, user) => {
   const defaults = getUserModelDefaults(user.id);
   return {
     model: defaults.model || process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
@@ -16,9 +14,8 @@ export const GET = route((req: NextRequest) => {
   };
 });
 
-export const POST = route(async (req: NextRequest) => {
-  const body = await readJson<{ userId: string; model: string; routingVariant?: string }>(req);
-  const user = requireUser(body.userId);
+export const POST = protectedRoute(async (req, user) => {
+  const body = await readJson<{ model: string; routingVariant?: string }>(req);
   const model = requireString(body.model, 'Model');
   const routingVariant =
     typeof body.routingVariant === 'string' && body.routingVariant.trim().length > 0

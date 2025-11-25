@@ -1,36 +1,25 @@
-import { NextRequest } from 'next/server';
 import { createAgent, initializeAgentTools, listAgents, slugifyName, getAgentBySlug } from '@/lib/db';
+import { protectedRoute, readJson } from '@/lib/api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
-  try {
-    const userId = req.nextUrl.searchParams.get('userId');
-    if (!userId) return Response.json({ error: 'User ID required' }, { status: 400 });
-    const agents = listAgents(userId);
-    return Response.json({ agents });
-  } catch (error) {
-    console.error('Error listing agents:', error);
-    return Response.json({ error: 'Failed to list agents' }, { status: 500 });
-  }
-}
+export const GET = protectedRoute(async (_req, user) => {
+  const agents = listAgents(user.id);
+  return { agents };
+});
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { userId, name } = body || {};
-    if (!userId || !name) return Response.json({ error: 'userId and name required' }, { status: 400 });
-    const slug = slugifyName(String(name));
-    const exists = getAgentBySlug(userId, slug);
-    if (exists) {
-      return Response.json({ error: 'An agent with this name already exists.' }, { status: 400 });
-    }
-    const agent = createAgent(userId, name);
-    initializeAgentTools(agent.id);
-    return Response.json({ agent });
-  } catch (error) {
-    console.error('Error creating agent:', error);
-    return Response.json({ error: 'Failed to create agent' }, { status: 500 });
+export const POST = protectedRoute(async (req, user) => {
+  const { name } = await readJson<{ name?: string }>(req);
+  if (!name) {
+    throw new (await import('@/lib/api')).ApiError(400, 'name required');
   }
-}
+  const slug = slugifyName(String(name));
+  const exists = getAgentBySlug(user.id, slug);
+  if (exists) {
+    throw new (await import('@/lib/api')).ApiError(400, 'An agent with this name already exists.');
+  }
+  const agent = createAgent(user.id, name);
+  initializeAgentTools(agent.id);
+  return { agent };
+});
