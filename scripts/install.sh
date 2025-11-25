@@ -51,10 +51,57 @@ DOMAIN_HOST="${DOMAIN_HOST%%/*}"
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
 REPO_BRANCH="${REPO_BRANCH:-proper-login}"
 
+wait_for_apt() {
+  local lock_files=(
+    /var/lib/dpkg/lock-frontend
+    /var/lib/apt/lists/lock
+    /var/cache/apt/archives/lock
+  )
+  local start_ts
+  start_ts=$(date +%s)
+  local timeout=120
+
+  while true; do
+    local busy=0
+    for lock in "${lock_files[@]}"; do
+      if sudo fuser "$lock" >/dev/null 2>&1; then
+        busy=1
+        break
+      fi
+    done
+
+    if [[ $busy -eq 0 ]]; then
+      break
+    fi
+
+    local now
+    now=$(date +%s)
+    if (( now - start_ts > timeout )); then
+      echo "[install] Detected lingering apt/dpkg lock; force-stopping other package managers…" >&2
+      # Kill any stuck apt/dpkg processes
+      local pids
+      pids=$(pgrep -f 'apt|dpkg' || true)
+      if [[ -n "$pids" ]]; then
+        sudo kill -9 $pids >/dev/null 2>&1 || true
+      fi
+      # Clean up locks and reconfigure
+      sudo rm -f "${lock_files[@]}" >/dev/null 2>&1 || true
+      sudo dpkg --configure -a >/dev/null 2>&1 || true
+      break
+    fi
+
+    printf '\r[install] Waiting for apt lock to clear (up to %ds)…' $((timeout - (now - start_ts)))
+    sleep 3
+  done
+  printf '\r[install] Apt locks cleared.%*s\n' 40 ''
+}
+
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
+wait_for_apt
 echo "[install] Updating apt package index…"
 sudo -E apt-get update -y >/dev/null
+wait_for_apt
 echo "[install] Installing base packages (git, curl, ca-certificates, unzip, openssl)…"
 sudo -E apt-get install -y git curl ca-certificates unzip openssl >/dev/null
 
