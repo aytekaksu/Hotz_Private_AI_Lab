@@ -523,24 +523,45 @@ export default function Home() {
   const isAtBottomRef = useRef(true);
   const userScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Buffer incoming message updates while the user is actively scrolling away from the bottom to avoid jitter
+  const [visibleMessages, setVisibleMessages] = useState<any[]>([]);
+  const pendingMessagesRef = useRef<any[] | null>(null);
 
-  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
-    isAtBottomRef.current = atBottom;
-  }, []);
+  const shouldDeferMessages = useCallback(() => userScrollingRef.current && !isAtBottomRef.current, []);
 
-  const handleIsScrolling = useCallback((scrolling: boolean) => {
-    if (scrolling) {
-      userScrollingRef.current = true;
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
+  const flushPendingMessages = useCallback(() => {
+    if (pendingMessagesRef.current && !shouldDeferMessages()) {
+      setVisibleMessages(pendingMessagesRef.current);
+      pendingMessagesRef.current = null;
+    }
+  }, [shouldDeferMessages]);
+
+  const handleAtBottomStateChange = useCallback(
+    (atBottom: boolean) => {
+      isAtBottomRef.current = atBottom;
+      if (atBottom) {
+        flushPendingMessages();
       }
-    } else {
-      // Delay resetting to allow followOutput to stabilize
+    },
+    [flushPendingMessages],
+  );
+
+  const handleIsScrolling = useCallback(
+    (scrolling: boolean) => {
+      if (scrolling) {
+        userScrollingRef.current = true;
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
+        return;
+      }
       scrollTimeoutRef.current = setTimeout(() => {
         userScrollingRef.current = false;
-      }, 150);
-    }
-  }, []);
+        flushPendingMessages();
+      }, 120);
+    },
+    [flushPendingMessages],
+  );
 
   // Determine if we should follow output
   const shouldFollowOutput = useCallback(() => {
@@ -554,6 +575,15 @@ export default function Home() {
   const pathname = usePathname();
   const router = useRouter();
   const pathnameRef = useRef<string>('');
+
+  useEffect(
+    () => () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     currentConversationIdRef.current = currentConversationId;
@@ -846,6 +876,15 @@ export default function Home() {
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  useEffect(() => {
+    if (shouldDeferMessages()) {
+      pendingMessagesRef.current = messages;
+      return;
+    }
+    pendingMessagesRef.current = null;
+    setVisibleMessages(messages);
+  }, [messages, shouldDeferMessages]);
 
   const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -1906,7 +1945,7 @@ export default function Home() {
         </header>
 
         <main className="flex-1 overflow-hidden min-w-0">
-          {messages.length === 0 ? (
+          {visibleMessages.length === 0 ? (
             <div
               className="px-4 pb-4 pt-[60px] sm:pb-6 sm:pt-[64px] md:px-10 md:py-6"
               style={{ paddingBottom: isMobile ? '12rem' : undefined }}
@@ -1930,14 +1969,14 @@ export default function Home() {
               ref={virtuosoRef}
               key={currentConversationId ?? 'new'}
               style={{ height: '100%', width: '100%' }}
-              data={messages}
+              data={visibleMessages}
               computeItemKey={(idx, message) => message.id ?? `msg-${idx}`}
               followOutput={shouldFollowOutput}
               overscan={400}
               atBottomThreshold={200}
               atBottomStateChange={handleAtBottomStateChange}
               isScrolling={handleIsScrolling}
-              initialTopMostItemIndex={messages.length - 1}
+              initialTopMostItemIndex={visibleMessages.length - 1}
               increaseViewportBy={{ top: 400, bottom: 400 }}
               defaultItemHeight={120}
               components={virtuosoComponents}
