@@ -136,11 +136,15 @@ export default function LoginPage() {
 
   // Only show first-time setup helpers until the very first successful login is completed
   const showFirstTimeSetup = !authStatus?.firstLoginCompleted;
+  const hasInstructions = showFirstTimeSetup;
+  const layoutClass = hasInstructions
+    ? 'grid w-full max-w-5xl grid-cols-1 gap-8 md:grid-cols-2'
+    : 'w-full max-w-xl';
   const canLogin = authStatus?.googleClientConfigured;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="grid w-full max-w-5xl grid-cols-1 gap-8 md:grid-cols-2">
+      <div className={layoutClass}>
         <div className="w-full">
           {/* Logo/Title */}
           <div className="mb-8 text-center md:text-left">
@@ -245,21 +249,6 @@ export default function LoginPage() {
                     </p>
                   )}
                 </div>
-              </div>
-            )}
-
-            {/* Status Indicator */}
-            {authStatus?.googleClientConfigured && (
-              <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-4 w-4">
-                  <path
-                    d="M5 10l4 4 6-8"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                Google OAuth configured
               </div>
             )}
 
