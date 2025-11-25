@@ -13,7 +13,7 @@ Environment variables:
   GITHUB_USER   GitHub username that can access the private repo (required)
   GITHUB_PAT    Personal access token with repo scope (required)
   APP_DIR       Target install directory (default: ~/Hotz_Private_AI_Lab)
-  REPO_BRANCH   Git branch to clone (default: master)
+  REPO_BRANCH   Git branch to clone (default: proper-login)
 EOF
 }
 
@@ -49,7 +49,7 @@ DOMAIN_HOST="${DOMAIN_HOST#https://}"
 DOMAIN_HOST="${DOMAIN_HOST%%/*}"
 
 APP_DIR="${APP_DIR:-$HOME/Hotz_Private_AI_Lab}"
-REPO_BRANCH="${REPO_BRANCH:-master}"
+REPO_BRANCH="${REPO_BRANCH:-proper-login}"
 
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
