@@ -189,6 +189,93 @@ const MarkdownMessage = memo(({ text }: { text: string }) => (
 
 MarkdownMessage.displayName = 'MarkdownMessage';
 
+// Memoized message row to prevent re-renders of unchanged messages
+const MessageRow = memo(({ 
+  message, 
+  isUser, 
+  text, 
+  attachments, 
+  onOpenAttachment,
+  renderToolChips,
+}: {
+  message: any;
+  isUser: boolean;
+  text: string;
+  attachments: any[];
+  onOpenAttachment: (attachment: any) => void;
+  renderToolChips: (message: any) => React.ReactNode;
+}) => (
+  <div className={`mx-auto mb-6 flex w-full max-w-5xl px-4 md:px-10 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    {isUser ? (
+      <div className="max-w-[90%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur sm:max-w-[80%]">
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
+        {attachments.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {attachments.map((attachment: any) => (
+              <a
+                key={attachment.id}
+                href={`/api/attachments/${attachment.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenAttachment(attachment);
+                }}
+              >
+                {attachment.is_encrypted ? (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                )}
+                {attachment.filename}
+              </a>
+            ))}
+          </div>
+        )}
+        {renderToolChips(message)}
+      </div>
+    ) : (
+      <div className="w-full max-w-full md:max-w-[80ch]">
+        <div className="text-sm leading-relaxed text-foreground">
+          <MarkdownMessage text={text} />
+        </div>
+        {attachments.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {attachments.map((attachment: any) => (
+              <a
+                key={attachment.id}
+                href={`/api/attachments/${attachment.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenAttachment(attachment);
+                }}
+              >
+                {attachment.is_encrypted ? (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
+                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                )}
+                {attachment.filename}
+              </a>
+            ))}
+          </div>
+        )}
+        {renderToolChips(message)}
+      </div>
+    )}
+  </div>
+));
+
+MessageRow.displayName = 'MessageRow';
+
 type ChatScrollerProps = HTMLAttributes<HTMLDivElement> & { paddingBottom?: string; paddingTop?: string };
 
 const ChatScroller = forwardRef<HTMLDivElement, ChatScrollerProps>(
@@ -1842,14 +1929,16 @@ export default function Home() {
               key={currentConversationId ?? 'new'}
               style={{ height: '100%', width: '100%' }}
               data={messages}
+              computeItemKey={(idx, message) => message.id ?? `msg-${idx}`}
               followOutput={shouldFollowOutput}
-              overscan={400}
+              overscan={800}
               atBottomThreshold={200}
               atBottomStateChange={handleAtBottomStateChange}
               isScrolling={handleIsScrolling}
               initialTopMostItemIndex={messages.length - 1}
-              increaseViewportBy={{ top: 600, bottom: 600 }}
+              increaseViewportBy={{ top: 800, bottom: 800 }}
               defaultItemHeight={120}
+              skipAnimationFrameInResizeObserver
               components={virtuosoComponents}
               itemContent={(idx, message: any) => {
                 const isUser = message.role === 'user';
@@ -1861,76 +1950,14 @@ export default function Home() {
                     : [];
 
                 return (
-                  <div
-                    key={message.id ?? idx}
-                    className={`mx-auto mb-6 flex w-full max-w-5xl px-4 md:px-10 ${isUser ? 'justify-end' : 'justify-start'}`}
-                  >
-                    {isUser ? (
-                      <div className="max-w-[90%] rounded-3xl rounded-br-none border border-border bg-card/70 px-5 py-4 shadow-sm backdrop-blur sm:max-w-[80%]">
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{text}</div>
-                        {attachmentsForMessage.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {attachmentsForMessage.map((attachment: any) => (
-                              <a
-                                key={attachment.id}
-                                href={`/api/attachments/${attachment.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  void handleOpenAttachment(attachment);
-                                }}
-                              >
-                                {attachment.is_encrypted ? (
-                                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
-                                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                ) : (
-                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-                                )}
-                                {attachment.filename}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                        {renderToolChips(message)}
-                      </div>
-                    ) : (
-                      <div className="w-full max-w-full md:max-w-[80ch]">
-                        <div className="text-sm leading-relaxed text-foreground">
-                          <MarkdownMessage text={text} />
-                        </div>
-                        {attachmentsForMessage.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {attachmentsForMessage.map((attachment: any) => (
-                              <a
-                                key={attachment.id}
-                                href={`/api/attachments/${attachment.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs text-muted transition hover:text-foreground"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  void handleOpenAttachment(attachment);
-                                }}
-                              >
-                                {attachment.is_encrypted ? (
-                                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" className="h-3 w-3 text-accent">
-                                    <path d="M6.667 9.167v-2.5a3.333 3.333 0 1 1 6.666 0v2.5m-8.333 0h10V15a1.667 1.667 0 0 1-1.667 1.667H8.333A1.667 1.667 0 0 1 6.667 15V9.167Z" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                ) : (
-                                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-                                )}
-                                {attachment.filename}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                        {renderToolChips(message)}
-                      </div>
-                    )}
-                  </div>
+                  <MessageRow
+                    message={message}
+                    isUser={isUser}
+                    text={text}
+                    attachments={attachmentsForMessage}
+                    onOpenAttachment={handleOpenAttachment}
+                    renderToolChips={renderToolChips}
+                  />
                 );
               }}
             />
