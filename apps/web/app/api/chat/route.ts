@@ -658,7 +658,7 @@ You also have access to the get_current_datetime tool if you need to get the cur
       }
     }
     
-    const allowedModels = ['anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5'];
+    const allowedModels = ['anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5', 'anthropic/claude-opus-4.5'];
     let baseModelCandidate = user.default_model || process.env.OPENROUTER_MODEL || 'anthropic/claude-haiku-4.5';
     const baseModelRootCandidate = baseModelCandidate.split(':')[0];
     if (!allowedModels.includes(baseModelRootCandidate)) {
@@ -708,6 +708,9 @@ You also have access to the get_current_datetime tool if you need to get the cur
           }
           if (slug === 'anthropic/claude-haiku-4.5') {
             return process.env.ANTHROPIC_HAIKU_4_5_ID || 'claude-haiku-4-5-20251001';
+          }
+          if (slug === 'anthropic/claude-opus-4.5') {
+            return process.env.ANTHROPIC_OPUS_4_5_ID || 'claude-opus-4-5';
           }
           return process.env.ANTHROPIC_FALLBACK_MODEL || 'claude-sonnet-4-5-20250929';
         })())
