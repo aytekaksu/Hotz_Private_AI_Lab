@@ -120,8 +120,8 @@ export default function LoginPage() {
     );
   }
 
-  // Show credential upload UI only before first login is completed
-  const showCredentialUpload = !authStatus?.firstLoginCompleted && !authStatus?.googleClientConfigured;
+  // Allow credential upload until the very first successful login is completed
+  const showCredentialUpload = !authStatus?.firstLoginCompleted;
   const canLogin = authStatus?.googleClientConfigured;
 
   return (
